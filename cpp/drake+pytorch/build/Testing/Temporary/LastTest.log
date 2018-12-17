@@ -1,0 +1,21 @@
+Start testing: Dec 17 12:55 EST
+----------------------------------------------------------
+1/1 Testing: pytorch-alone
+1/1 Test: pytorch-alone
+Command: "/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_alone/pytorch-alone"
+Directory: /home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_alone
+"pytorch-alone" start time: Dec 17 12:55 EST
+Output:
+----------------------------------------------------------
+ 0.6160  0.2262  0.8435
+ 0.7237  0.0132  0.0136
+[ Variable[CPUFloatType]{2,3} ]
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"pytorch-alone" end time: Dec 17 12:55 EST
+"pytorch-alone" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Dec 17 12:55 EST
