@@ -1,1 +1,7 @@
 cpp/pytorch_playground/*
+**/*.pyc
+**/*.swp
+**/*.ipynb_checkpoints/*.ipynb
+**/*.ipynb_checkpoints/
+.*
+!/.gitignore
