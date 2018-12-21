@@ -40,6 +40,7 @@ endif()
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
   include("/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_alone/cmake_install.cmake")
+  include("/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_acrobot/cmake_install.cmake")
 
 endif()
 

@@ -1,21 +1,39 @@
-Start testing: Dec 17 12:55 EST
+Start testing: Dec 20 16:10 EST
 ----------------------------------------------------------
-1/1 Testing: pytorch-alone
-1/1 Test: pytorch-alone
+1/2 Testing: pytorch-alone
+1/2 Test: pytorch-alone
 Command: "/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_alone/pytorch-alone"
 Directory: /home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_alone
-"pytorch-alone" start time: Dec 17 12:55 EST
+"pytorch-alone" start time: Dec 20 16:10 EST
 Output:
 ----------------------------------------------------------
- 0.6160  0.2262  0.8435
- 0.7237  0.0132  0.0136
+ 0.5365  0.0644  0.3559
+ 0.6729  0.5430  0.0254
+[ Variable[CPUFloatType]{2,3} ]
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"pytorch-alone" end time: Dec 20 16:10 EST
+"pytorch-alone" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/2 Testing: pytorch-acrobot
+2/2 Test: pytorch-acrobot
+Command: "/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_acrobot/pytorch-acrobot"
+Directory: /home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_acrobot
+"pytorch-acrobot" start time: Dec 20 16:10 EST
+Output:
+----------------------------------------------------------
+ 0.5718  0.9323  0.3390
+ 0.7823  0.0317  0.6670
 [ Variable[CPUFloatType]{2,3} ]
 <end of output>
 Test time =   0.14 sec
 ----------------------------------------------------------
 Test Passed.
-"pytorch-alone" end time: Dec 17 12:55 EST
-"pytorch-alone" time elapsed: 00:00:00
+"pytorch-acrobot" end time: Dec 20 16:10 EST
+"pytorch-acrobot" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Dec 17 12:55 EST
+End testing: Dec 20 16:10 EST

@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+import torch
 
 from pydrake.all import (
     BasicVector,
@@ -13,6 +14,9 @@ class NNSystem(LeafSystem):
     Powered by PyTorch.
     '''
     def __init__(self, pytorch_nn_object):
+        '''
+            pytorch_nn_object: a function(inputs) -> outputs
+        '''
         LeafSystem.__init__(self)
 
         # Getting relavent qtys out of pytorch_nn_object, for port setup.
@@ -38,12 +42,22 @@ class NNSystem(LeafSystem):
                        |
                context.p (parameters)
         '''
-        # u = self.EvalVectorInput(
-        #     context, self.NN_in_input_port.get_index()).get_value()
+        u = self.EvalVectorInput(
+            context, self.NN_in_input_port.get_index()).get_value().astype(np.float32)
         # p = context.GetParams() #TODO: figure out a way to deal with parameters
         # y = self.network.Eval(u) #, p)y
+
         y = output.get_mutable_value()
-        y[:] = 0
-        # dydu = self.network.derivatives #TODO
-        dydu = 1
+        if self.network is None:
+            y[:] = 0
+            assert False
+            # y.derivs[:] = 0
+        else:
+            #TODO This detach here is needed bc we are going to numpy for output, and so can't propagate gradients any further!
+            y[:] = self.network.forward(torch.from_numpy(u)).detach()
+            # y.derivs[:] = 0
+
+        # dydu = self.network.derivatives
+        # dydu = 1
+        #TODO
         # y.derivs = dydu*u.derivs() # + dydp*p.derivs()

@@ -37,3 +37,4 @@
 # add_subdirectory(simple_continuous_time_system)
 # add_subdirectory(pytorch_integration)
 add_subdirectory(pytorch_alone)
+add_subdirectory(pytorch_acrobot)

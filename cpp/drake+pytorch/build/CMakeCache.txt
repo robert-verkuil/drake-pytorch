@@ -98,7 +98,7 @@ CMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=
 CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 
 //Enable/Disable output of compile commands during generation.
-CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=OFF
+CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
 
 //Install path prefix, prepended onto install directories.
 CMAKE_INSTALL_PREFIX:PATH=/usr/local
@@ -268,28 +268,28 @@ PYTHON_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/libpython2.7.so
 PYTHON_LIBRARY_DEBUG:FILEPATH=PYTHON_LIBRARY_DEBUG-NOTFOUND
 
 //Path to a file.
-Protobuf_INCLUDE_DIR:PATH=/usr/include
+Protobuf_INCLUDE_DIR:PATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include
 
 //Path to a library.
-Protobuf_LIBRARY_DEBUG:FILEPATH=/usr/lib/x86_64-linux-gnu/libprotobuf.so
+Protobuf_LIBRARY_DEBUG:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotobuf.a
 
 //Path to a library.
-Protobuf_LIBRARY_RELEASE:FILEPATH=/usr/lib/x86_64-linux-gnu/libprotobuf.so
+Protobuf_LIBRARY_RELEASE:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotobuf.a
 
 //Path to a library.
-Protobuf_LITE_LIBRARY_DEBUG:FILEPATH=/usr/lib/x86_64-linux-gnu/libprotobuf-lite.so
+Protobuf_LITE_LIBRARY_DEBUG:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotobuf-lite.a
 
 //Path to a library.
-Protobuf_LITE_LIBRARY_RELEASE:FILEPATH=/usr/lib/x86_64-linux-gnu/libprotobuf-lite.so
+Protobuf_LITE_LIBRARY_RELEASE:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotobuf-lite.a
 
 //The Google Protocol Buffers Compiler
-Protobuf_PROTOC_EXECUTABLE:FILEPATH=/usr/local/bin/protoc
+Protobuf_PROTOC_EXECUTABLE:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/bin/protoc
 
 //Path to a library.
-Protobuf_PROTOC_LIBRARY_DEBUG:FILEPATH=/usr/lib/x86_64-linux-gnu/libprotoc.so
+Protobuf_PROTOC_LIBRARY_DEBUG:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotoc.a
 
 //Path to a library.
-Protobuf_PROTOC_LIBRARY_RELEASE:FILEPATH=/usr/lib/x86_64-linux-gnu/libprotoc.so
+Protobuf_PROTOC_LIBRARY_RELEASE:FILEPATH=/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotoc.a
 
 //Run tests that require X11
 RUN_X11_TESTS:BOOL=OFF
@@ -345,6 +345,12 @@ lcm_DIR:PATH=/opt/drake/lib/cmake/lcm
 
 //The directory containing a CMake configuration file for optitrack.
 optitrack_DIR:PATH=/opt/drake/lib/cmake/optitrack
+
+//Value Computed by CMake
+pytorch-acrobot_BINARY_DIR:STATIC=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_acrobot
+
+//Value Computed by CMake
+pytorch-acrobot_SOURCE_DIR:STATIC=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/src/pytorch_acrobot
 
 //Value Computed by CMake
 pytorch-alone_BINARY_DIR:STATIC=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/src/pytorch_alone
@@ -474,7 +480,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_NM
 CMAKE_NM-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=3
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=4
 //ADVANCED property for variable: CMAKE_OBJCOPY
 CMAKE_OBJCOPY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_OBJDUMP
@@ -530,7 +536,7 @@ CVS_UPDATE_OPTIONS-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: DART_TESTING_TIMEOUT
 DART_TESTING_TIMEOUT-ADVANCED:INTERNAL=1
 //Details about finding Protobuf
-FIND_PACKAGE_MESSAGE_DETAILS_Protobuf:INTERNAL=[/usr/lib/x86_64-linux-gnu/libprotobuf.so;-lpthread][/usr/include][v2.6.1(2.6.1)]
+FIND_PACKAGE_MESSAGE_DETAILS_Protobuf:INTERNAL=[/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotobuf.a;-lpthread][/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include][v3.5.0(2.6.1)]
 //Details about finding PythonInterp
 FIND_PACKAGE_MESSAGE_DETAILS_PythonInterp:INTERNAL=[/home/rverkuil/integration/integration/bin/python2.7][v2.7.12()]
 //Details about finding PythonLibs

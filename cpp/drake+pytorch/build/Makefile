@@ -498,6 +498,19 @@ pytorch-alone/fast:
 	$(MAKE) -f src/pytorch_alone/CMakeFiles/pytorch-alone.dir/build.make src/pytorch_alone/CMakeFiles/pytorch-alone.dir/build
 .PHONY : pytorch-alone/fast
 
+#=============================================================================
+# Target rules for targets named pytorch-acrobot
+
+# Build rule for target.
+pytorch-acrobot: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 pytorch-acrobot
+.PHONY : pytorch-acrobot
+
+# fast build rule for target.
+pytorch-acrobot/fast:
+	$(MAKE) -f src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/build.make src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/build
+.PHONY : pytorch-acrobot/fast
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -536,6 +549,7 @@ help:
 	@echo "... ContinuousStart"
 	@echo "... ContinuousUpdate"
 	@echo "... pytorch-alone"
+	@echo "... pytorch-acrobot"
 .PHONY : help
 
 

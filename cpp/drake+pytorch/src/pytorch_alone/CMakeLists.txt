@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(pytorch-alone)
 
-find_package(Torch REQUIRED)
+#find_package(Torch REQUIRED)
 
 add_executable(pytorch-alone pytorch-alone.cpp)
 target_link_libraries(pytorch-alone drake::drake)

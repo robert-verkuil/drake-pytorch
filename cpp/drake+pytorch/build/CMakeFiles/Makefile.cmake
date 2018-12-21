@@ -12,6 +12,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "CMakeFiles/3.12.2/CMakeCXXCompiler.cmake"
   "CMakeFiles/3.12.2/CMakeSystem.cmake"
   "../src/CMakeLists.txt"
+  "../src/pytorch_acrobot/CMakeLists.txt"
   "../src/pytorch_alone/CMakeLists.txt"
   "/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/share/cmake/Caffe2/Caffe2Config.cmake"
   "/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/share/cmake/Caffe2/Caffe2ConfigVersion.cmake"
@@ -89,6 +90,7 @@ set(CMAKE_MAKEFILE_PRODUCTS
   "CMakeFiles/CMakeDirectoryInformation.cmake"
   "src/CMakeFiles/CMakeDirectoryInformation.cmake"
   "src/pytorch_alone/CMakeFiles/CMakeDirectoryInformation.cmake"
+  "src/pytorch_acrobot/CMakeFiles/CMakeDirectoryInformation.cmake"
   )
 
 # Dependency information for all targets:
@@ -122,4 +124,5 @@ set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/ContinuousStart.dir/DependInfo.cmake"
   "CMakeFiles/ContinuousUpdate.dir/DependInfo.cmake"
   "src/pytorch_alone/CMakeFiles/pytorch-alone.dir/DependInfo.cmake"
+  "src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/DependInfo.cmake"
   )

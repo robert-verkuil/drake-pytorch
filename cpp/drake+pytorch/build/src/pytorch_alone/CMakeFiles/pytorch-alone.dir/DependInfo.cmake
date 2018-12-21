@@ -25,9 +25,9 @@ set(CMAKE_CXX_TARGET_INCLUDE_PATH
   "/opt/drake/include/fmt"
   "/opt/drake/include/ignition-math4"
   "/opt/drake/include/ignition-rndf0"
+  "/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include"
   "/opt/drake/include/spdlog"
   "/opt/drake/include/stx"
-  "/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include"
   "/home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include/torch/csrc/api/include"
   )
 

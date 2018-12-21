@@ -965,16 +965,19 @@ clean: CMakeFiles/ContinuousUpdate.dir/clean
 
 # Convenience name for "all" pass in the directory.
 src/all: src/pytorch_alone/all
+src/all: src/pytorch_acrobot/all
 
 .PHONY : src/all
 
 # Convenience name for "clean" pass in the directory.
 src/clean: src/pytorch_alone/clean
+src/clean: src/pytorch_acrobot/clean
 
 .PHONY : src/clean
 
 # Convenience name for "preinstall" pass in the directory.
 src/preinstall: src/pytorch_alone/preinstall
+src/preinstall: src/pytorch_acrobot/preinstall
 
 .PHONY : src/preinstall
 
@@ -1003,7 +1006,7 @@ src/pytorch_alone/preinstall:
 src/pytorch_alone/CMakeFiles/pytorch-alone.dir/all:
 	$(MAKE) -f src/pytorch_alone/CMakeFiles/pytorch-alone.dir/build.make src/pytorch_alone/CMakeFiles/pytorch-alone.dir/depend
 	$(MAKE) -f src/pytorch_alone/CMakeFiles/pytorch-alone.dir/build.make src/pytorch_alone/CMakeFiles/pytorch-alone.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/CMakeFiles --progress-num=1,2 "Built target pytorch-alone"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/CMakeFiles --progress-num=4,5 "Built target pytorch-alone"
 .PHONY : src/pytorch_alone/CMakeFiles/pytorch-alone.dir/all
 
 # Include target in all.
@@ -1030,6 +1033,61 @@ src/pytorch_alone/CMakeFiles/pytorch-alone.dir/clean:
 
 # clean rule for target.
 clean: src/pytorch_alone/CMakeFiles/pytorch-alone.dir/clean
+
+.PHONY : clean
+
+#=============================================================================
+# Directory level rules for directory src/pytorch_acrobot
+
+# Convenience name for "all" pass in the directory.
+src/pytorch_acrobot/all: src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/all
+
+.PHONY : src/pytorch_acrobot/all
+
+# Convenience name for "clean" pass in the directory.
+src/pytorch_acrobot/clean: src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/clean
+
+.PHONY : src/pytorch_acrobot/clean
+
+# Convenience name for "preinstall" pass in the directory.
+src/pytorch_acrobot/preinstall:
+
+.PHONY : src/pytorch_acrobot/preinstall
+
+#=============================================================================
+# Target rules for target src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir
+
+# All Build rule for target.
+src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/all:
+	$(MAKE) -f src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/build.make src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/depend
+	$(MAKE) -f src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/build.make src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/CMakeFiles --progress-num=1,2,3 "Built target pytorch-acrobot"
+.PHONY : src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/all
+
+# Include target in all.
+all: src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/all
+
+.PHONY : all
+
+# Build rule for subdir invocation for target.
+src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/CMakeFiles 3
+	$(MAKE) -f CMakeFiles/Makefile2 src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/CMakeFiles 0
+.PHONY : src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/rule
+
+# Convenience name for target.
+pytorch-acrobot: src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/rule
+
+.PHONY : pytorch-acrobot
+
+# clean rule for target.
+src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/clean:
+	$(MAKE) -f src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/build.make src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/clean
+.PHONY : src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/clean
+
+# clean rule for target.
+clean: src/pytorch_acrobot/CMakeFiles/pytorch-acrobot.dir/clean
 
 .PHONY : clean
 

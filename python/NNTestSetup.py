@@ -7,33 +7,18 @@ from pydrake.multibody.parsing import (
     Parser,
     PackageMap,
 )
-
 from pydrake.multibody.multibody_tree.multibody_plant import (
     MultibodyPlant,
 )
 from pydrake.multibody.multibody_tree import (
     ModelInstanceIndex,
 )
-
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
-
-# from pydrake.examples.manipulation_station import (ManipulationStation,
-#                                     ManipulationStationHardwareInterface)
-# from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
 from pydrake.systems.framework import (
     DiagramBuilder,
-
 )
 from pydrake.geometry import SceneGraph
 from pydrake.systems.analysis import Simulator
-# from pydrake.util.eigen_geometry import Isometry3
-#
-# from underactuated.meshcat_visualizer import MeshcatVisualizer
-# # from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
-# from manipulation_station_plan_runner import ManipStationPlanRunner
-# from pydrake.systems.primitives import SignalLogger, Demultiplexer, LogOutput
-
-
 from pydrake.common import FindResourceOrThrow
 
 
@@ -48,8 +33,8 @@ def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
 
 
 class NNTestSetup:
-    def __init__(self):
-        pass
+    def __init__(self, pytorch_nn_object=None):
+        self.pytorch_nn_object = pytorch_nn_object
 
     def RunSimulation(self, real_time_rate=1.0):
         '''
@@ -79,7 +64,7 @@ class NNTestSetup:
 
 
         # Add
-        nn_system = NNSystem("insert_pytorch_system_here")
+        nn_system = NNSystem(self.pytorch_nn_object)
         builder.AddSystem(nn_system)
 
         # NN -> plant
@@ -100,7 +85,7 @@ class NNTestSetup:
         # build diagram
         diagram = builder.Build()
         meshcat.load()
-        time.sleep(2.0)
+        # time.sleep(2.0)
         RenderSystemWithGraphviz(diagram)
 
         # construct simulator
@@ -113,5 +98,5 @@ class NNTestSetup:
         simulator.set_publish_every_time_step(False)
         simulator.set_target_realtime_rate(real_time_rate)
         simulator.Initialize()
-        sim_duration = 10.
+        sim_duration = 5.
         simulator.StepTo(sim_duration)

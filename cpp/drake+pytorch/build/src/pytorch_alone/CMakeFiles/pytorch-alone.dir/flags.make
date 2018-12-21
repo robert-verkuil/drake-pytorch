@@ -6,5 +6,5 @@ CXX_FLAGS =   -D_GLIBCXX_USE_CXX11_ABI=1 -std=c++11 -std=gnu++14
 
 CXX_DEFINES = -DFMT_HEADER_ONLY=1 -DHAVE_SPDLOG -DSPDLOG_FMT_EXTERNAL
 
-CXX_INCLUDES = -isystem /opt/drake/include -isystem /opt/drake/include/drake_lcmtypes -isystem /opt/drake/include/lcm -isystem /opt/drake/include/lcmtypes -isystem /opt/drake/include/eigen3 -isystem /opt/drake/include/fmt -isystem /opt/drake/include/ignition-math4 -isystem /opt/drake/include/ignition-rndf0 -isystem /opt/drake/include/spdlog -isystem /opt/drake/include/stx -isystem /home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include -isystem /home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include/torch/csrc/api/include 
+CXX_INCLUDES = -isystem /opt/drake/include -isystem /opt/drake/include/drake_lcmtypes -isystem /opt/drake/include/lcm -isystem /opt/drake/include/lcmtypes -isystem /opt/drake/include/eigen3 -isystem /opt/drake/include/fmt -isystem /opt/drake/include/ignition-math4 -isystem /opt/drake/include/ignition-rndf0 -isystem /home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include -isystem /opt/drake/include/spdlog -isystem /opt/drake/include/stx -isystem /home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/include/torch/csrc/api/include 
 

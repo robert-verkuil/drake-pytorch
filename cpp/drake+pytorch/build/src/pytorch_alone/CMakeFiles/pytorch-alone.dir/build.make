@@ -85,7 +85,7 @@ src/pytorch_alone/pytorch-alone: /opt/drake/lib/libdrake_marker.so
 src/pytorch_alone/pytorch-alone: /opt/drake/lib/libdrake_ignition_rndf0.so
 src/pytorch_alone/pytorch-alone: /opt/drake/lib/libdrake_ignition_math4.so
 src/pytorch_alone/pytorch-alone: /opt/drake/lib/libdrake_lcm.so
-src/pytorch_alone/pytorch-alone: /usr/lib/x86_64-linux-gnu/libprotobuf.so
+src/pytorch_alone/pytorch-alone: /home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libprotobuf.a
 src/pytorch_alone/pytorch-alone: /home/rverkuil/integration/drake-pytorch/cpp/torchlib_cpu/lib/libc10.so
 src/pytorch_alone/pytorch-alone: src/pytorch_alone/CMakeFiles/pytorch-alone.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable pytorch-alone"

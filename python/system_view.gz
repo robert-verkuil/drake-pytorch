@@ -1,33 +1,33 @@
-digraph _65156448 {
+digraph _84049264 {
 rankdir=LR
-subgraph cluster65156448diagram {
+subgraph cluster84049264diagram {
 color=black
 concentrate=true
-label="65156448";
-subgraph cluster65156448inputports {
+label="84049264";
+subgraph cluster84049264inputports {
 rank=same
 color=lightgrey
 style=filled
 label="input ports"
 }
-subgraph cluster65156448outputports {
+subgraph cluster84049264outputports {
 rank=same
 color=lightgrey
 style=filled
 label="output ports"
 }
-subgraph cluster65156448subsystems {
+subgraph cluster84049264subsystems {
 color=white
 label=""
-65148208 [shape=record, label="drake/geometry/SceneGraph@0000000003e21530|{{<u0>Source_84_pose} | {<y0>lcm_visualization|<y1>query}}"];
-58661744 [shape=record, label="drake/multibody/MultibodyPlant@00000000037f1b70|{{<u0>geometry_query|<u1>acrobot_actuation} | {<y0>geometry_pose|<y1>continuous_state|<y2>acrobot_continuous_state|<y3>acrobot_generalized_contact_forces|<y4>contact_results}}"];
-63212400 [shape=record, label="drake/pydrake/(anonymous)/Impl@0000000003c48b70|{{<u0>NN_in} | {<y0>NN_out}}"];
-65881376 [shape=record, label="meshcat_visualizer|{{<u0>lcm_visualization} | {}}"];
-65148208:y1 -> 58661744:u0;
-63212400:y0 -> 58661744:u1;
-58661744:y1 -> 63212400:u0;
-58661744:y0 -> 65148208:u0;
-65148208:y0 -> 65881376:u0;
+80626224 [shape=record, label="drake/geometry/SceneGraph@0000000004ce4230|{{<u0>Source_138_pose} | {<y0>lcm_visualization|<y1>query}}"];
+77230784 [shape=record, label="drake/multibody/MultibodyPlant@00000000049a72c0|{{<u0>geometry_query|<u1>acrobot_actuation} | {<y0>geometry_pose|<y1>continuous_state|<y2>acrobot_continuous_state|<y3>acrobot_generalized_contact_forces|<y4>contact_results}}"];
+81823568 [shape=record, label="drake/pydrake/(anonymous)/Impl@0000000004e08750|{{<u0>NN_in} | {<y0>NN_out}}"];
+77932256 [shape=record, label="meshcat_visualizer|{{<u0>lcm_visualization} | {}}"];
+80626224:y1 -> 77230784:u0;
+81823568:y0 -> 77230784:u1;
+80626224:y0 -> 77932256:u0;
+77230784:y0 -> 80626224:u0;
+77230784:y1 -> 81823568:u0;
 }
 }
 }
