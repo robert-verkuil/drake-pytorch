@@ -20,7 +20,7 @@
 #include <iostream>
 
 // TODO: get this working
-// #include <torch/torch.h>
+#include <torch/torch.h>
 
 
 namespace drake {
@@ -48,8 +48,10 @@ void RenderSystemWithGraphviz(const drake::systems::System<double>& system, std:
 class NNTestSetup
 {
   public:
-    NNTestSetup(drake::systems::DrakeNet *neural_network)
-      : neural_network_(neural_network) {
+    NNTestSetup(drake::systems::DrakeNet *neural_network, int n_inputs, int n_outputs)
+      : neural_network_(neural_network),
+        n_inputs_(n_inputs),
+        n_outputs_(n_outputs) {
         std::cout << "babies first constructor " << "replaceThis" << std::endl;
     }
 
@@ -83,7 +85,7 @@ class NNTestSetup
 
         // Add
         //drake::systems::NNSystem nn_system{neural_network_};
-        auto nn_system = builder.AddSystem<drake::systems::NNSystem>(neural_network_);
+        auto nn_system = builder.AddSystem<drake::systems::NNSystem>(neural_network_, n_inputs_, n_outputs_);
 
         // NN -> plant
         builder.Connect(nn_system->GetOutputPort("NN_out"),
@@ -114,34 +116,37 @@ class NNTestSetup
     }
     private:
       drake::systems::DrakeNet *neural_network_;
+      int n_inputs_;
+      int n_outputs_;
 };
 } // namespace drake
 
 
 // Define a new Module.
 // struct Net : torch::nn::Module {
-//struct Net : DrakeNet {
-//  Net() {
-//    // Construct and register two Linear submodules.
-//    fc1 = register_module("fc1", torch::nn::Linear(8, 64));
-//    fc2 = register_module("fc2", torch::nn::Linear(64, 1));
-//  }
-//
-//  // Implement the Net's algorithm.
-//  torch::Tensor forward(torch::Tensor x) {
-//    // Use one of many tensor manipulation functions.
-//    x = torch::relu(fc1->forward(x));
-//    x = torch::dropout(x, /*p=*/0.5, /*train=*/true);
-//    x = torch::sigmoid(fc2->forward(x));
-//    return x;
-//  }
-//
-//  // Use one of many "standard library" modules.
-//  torch::nn::Linear fc1{nullptr}, fc2{nullptr};
-//};
-
 struct Net : drake::systems::DrakeNet {
   Net() {
+    // Construct and register two Linear submodules.
+    fc1 = register_module("fc1", torch::nn::Linear(4, 64));
+    fc2 = register_module("fc2", torch::nn::Linear(64, 1));
+  }
+
+  // Implement the Net's algorithm.
+  torch::Tensor forward(torch::Tensor x) {
+    //std::cout << "torch forward method called!" << std::endl;
+    // Use one of many tensor manipulation functions.
+    x = torch::relu(fc1->forward(x));
+    x = torch::dropout(x, /*p=*/0.5, /*train=*/true);
+    x = torch::sigmoid(fc2->forward(x));
+    return x;
+  }
+
+  // Use one of many "standard library" modules.
+  torch::nn::Linear fc1{nullptr}, fc2{nullptr};
+};
+
+struct DummyNet : drake::systems::DrakeNet {
+  DummyNet() {
     // Construct and register two Linear submodules.
       std::cout << "Net constructed." << std::endl;
   }
@@ -154,10 +159,11 @@ struct Net : drake::systems::DrakeNet {
 
 int main(){
     // Create a new Net.
+    //DummyNet net;
     Net net;
-    auto nnTest = drake::NNTestSetup{&net};
-    //drake::NNTestSetup{1776};
-    nnTest.RunSimulation(); // <- Get this working!!!
+    auto nnTest = drake::NNTestSetup{&net, 4, 1};
+    nnTest.RunSimulation();
+
     return 0;
 }
 

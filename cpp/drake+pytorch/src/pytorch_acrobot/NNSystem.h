@@ -5,18 +5,19 @@
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/output_port.h"
 
-//#include <torch/torch.h>
+#include <torch/torch.h>
 
 namespace drake {
 namespace systems {
 
 // Declare the format of Torch net objects?
-//struct DrakeNet : torch::nn::Module {
-//  virtual torch::Tensor forward(torch::Tensor x) = 0;
-//};
-struct DrakeNet {
-  virtual int forward() = 0;
+struct DrakeNet : torch::nn::Module {
+  virtual torch::Tensor forward(torch::Tensor x) = 0;
 };
+//struct DrakeNet : torch::nn::Module {
+//  virtual int forward() = 0;
+//};
+//typedef torch::nn::Module DrakeNet;
 
 /// A neural network system that accepts, inputs, parameters, and produces and output.
 /// Supports gradients, and is powered by Torchlib, the c++ frontend to PyTorch.
@@ -45,7 +46,7 @@ class NNSystem final : public drake::systems::LeafSystem<double> {
 
   /// Construct an %NNSystem System.
   /// @param neural_network is a TorchLib net, a subclass of torch::nn::Module that has a forward() method.
-  NNSystem(DrakeNet *neural_network); // TODO: what the hell type do I use here?
+  NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs); // TODO: what the hell type do I use here?
 
   /// Scalar-converting copy constructor.  See @ref system_scalar_conversion. // Sure...
 //  template <typename U>
@@ -63,6 +64,8 @@ class NNSystem final : public drake::systems::LeafSystem<double> {
   void Forward(const Context<double>& context, BasicVector<double>* sum) const;
   //torch::nn::Module neural_network_;
   DrakeNet *neural_network_; // TODO: switch to a unique pointer so that you have ownership of the network!
+  int n_inputs_;
+  int n_outputs_;
 };
 
 }  // namespace systems
