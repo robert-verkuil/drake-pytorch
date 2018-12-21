@@ -39,8 +39,7 @@ struct DrakeNet {
 /// TODO: these statements valid?
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
-template <typename T>
-class NNSystem final : public drake::systems::LeafSystem<T> {
+class NNSystem final : public drake::systems::LeafSystem<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(NNSystem) // Sure?
 
@@ -53,15 +52,15 @@ class NNSystem final : public drake::systems::LeafSystem<T> {
 //  explicit NNSystem(const NNSystem<U>&);
 
   /// Returns the output port on which the NN output is presented.
-  const OutputPort<T>& get_output_port() const {
-    return LeafSystem<T>::get_output_port(0);
+  const OutputPort<double>& get_output_port() const {
+    return LeafSystem<double>::get_output_port(0);
   }
 
  private:
   // Performs fwd inference of the net, which has user-specified dimensions. If the
   // input ports are not the appropriate count or size, std::runtime_error will
   // be thrown.
-  void Forward(const Context<T>& context, BasicVector<T>* sum) const;
+  void Forward(const Context<double>& context, BasicVector<double>* sum) const;
   //torch::nn::Module neural_network_;
   DrakeNet *neural_network_; // TODO: switch to a unique pointer so that you have ownership of the network!
 };

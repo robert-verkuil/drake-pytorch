@@ -2,6 +2,7 @@
 
 #include "drake/geometry/dev/geometry_visualization.h"
 #include "drake/geometry/dev/scene_graph.h"
+#include "drake/geometry/geometry_visualization.h"
 #include "drake/geometry/scene_graph.h"
 
 #include "drake/lcm/drake_lcm.h"
@@ -14,44 +15,42 @@
 
 #include "NNSystem.h"
 
-namespace drake {
-// TODO: Make sure to put these inside of the namespacing brackets...
-using geometry::dev::ConnectDrakeVisualizer;
-// using geometry::dev::SceneGraph;
-// using geometry::SourceId;
-// using lcm::DrakeLcm;
-using drake::multibody::Parser;
-
-using multibody::MultibodyPlant;
-using geometry::SceneGraph;
-
+#include <fstream>
+#include <string>
+#include <iostream>
 
 // TODO: get this working
 // #include <torch/torch.h>
 
 
-// TODO: convert to cpp?
-// def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
-//     /*
-//     * Renders the Drake system (presumably a diagram,
-//     * otherwise this graph will be fairly trivial) using
-//     * graphviz to a specified file. '''
-//     */
-//     from graphviz import Source
-//     string = system.GetGraphvizString()
-//     src = Source(string)
-//     src.render(output_file, view=False)
+namespace drake {
+using drake::multibody::Parser;
+using geometry::SceneGraph;
+using geometry::ConnectDrakeVisualizer;
+using multibody::MultibodyPlant;
 
-// Random Rob notes:
-// Seems like systems are uppercase concated, and templated by double?
+
+// TODO: convert to cpp?
+void RenderSystemWithGraphviz(const drake::systems::System<double>& system, std::string output_file="system_view.gz"){
+  /*
+  * Renders the Drake system (presumably a diagram,
+  * otherwise this graph will be fairly trivial) using
+  * graphviz to a specified file. '''
+  */
+  std::string string = system.GetGraphvizString();
+  std::ofstream out(output_file);
+  out << string;
+  out.close();
+  std::cout << "graphviz string written to " << output_file << std::endl;
+}
+
 
 class NNTestSetup
 {
   public:
-    // def __init__(self, pytorch_nn_object=None):
-    //     self.pytorch_nn_object = pytorch_nn_object
-    NNTestSetup(int replaceThis){
-        std::cout << "babies first constructor " << replaceThis << std::endl;
+    NNTestSetup(drake::systems::DrakeNet *neural_network)
+      : neural_network_(neural_network) {
+        std::cout << "babies first constructor " << "replaceThis" << std::endl;
     }
 
     void RunSimulation(float real_time_rate=1.0){
@@ -61,13 +60,13 @@ class NNTestSetup
         systems::DiagramBuilder<double> builder;
         SceneGraph<double>& scene_graph = *builder.AddSystem<SceneGraph>();
 
-        const char sdfPath[] = "assets/acrobot.sdf";
+        const char sdfPath[] = "/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/src/pytorch_acrobot/assets/acrobot.sdf"; // TODO: handle needing full paths better than this!
         const char urdfPath[] = "assets/acrobot.urdf";
 
         MultibodyPlant<double>& plant = *builder.AddSystem<MultibodyPlant>();
         plant.RegisterAsSourceForSceneGraph(&scene_graph);
         Parser(&plant, &scene_graph).AddModelFromFile(
-            FindResourceOrThrow(sdfPath));
+            sdfPath);
 
         // It's one of these next two lines.
         plant.Finalize(&scene_graph);
@@ -75,49 +74,46 @@ class NNTestSetup
         DRAKE_DEMAND(plant.geometry_source_is_registered());
 
         // These might just work?
-//        builder.Connect(
-//            plant.get_geometry_poses_output_port(),
-//            scene_graph.get_source_pose_port(plant.get_source_id()));
-//        builder.Connect(
-//            scene_graph.get_query_output_port(),
-//            plant.get_geometry_query_input_port());
-//
-        // BELOW HERE NO IDEA IF IT WORKS...
-        
+        builder.Connect(
+            plant.get_geometry_poses_output_port(),
+            scene_graph.get_source_pose_port(plant.get_source_id().value()));
+        builder.Connect(
+            scene_graph.get_query_output_port(),
+            plant.get_geometry_query_input_port());
+
         // Add
-//        nn_system = NNSystem(self.pytorch_nn_object);
-//        builder.AddSystem(nn_system);
-//
-//        // NN -> plant
-//        builder.Connect(nn_system.NN_out_output_port,
-//                        plant.get_actuation_input_port());
-//        // plant -> NN
-//        builder.Connect(plant.get_continuous_state_output_port(),
-//                        nn_system.NN_in_input_port);
-//
-//
-//        // Add meshcat visualizer
-//        // TODO: use ConnectDrakeVisualizer(&builder, *scene_graph);
-//        meshcat = MeshcatVisualizer(scene_graph);
-//        builder.AddSystem(meshcat);
-//        builder.Connect(scene_graph.get_pose_bundle_output_port(),
-//                        meshcat.GetInputPort("lcm_visualization"));
-//
-//        // build diagram
-//        diagram = builder.Build();
-//        meshcat.load();
-//        // time.sleep(2.0);
-//        RenderSystemWithGraphviz(diagram);
-//
-//        // construct simulator
-//        simulator = Simulator(diagram);
-//
-//        simulator.set_publish_every_time_step(False);
-//        simulator.set_target_realtime_rate(real_time_rate);
-//        simulator.Initialize();
-//        sim_duration = 5.;
-//        simulator.StepTo(sim_duration);
+        //drake::systems::NNSystem nn_system{neural_network_};
+        auto nn_system = builder.AddSystem<drake::systems::NNSystem>(neural_network_);
+
+        // NN -> plant
+        builder.Connect(nn_system->GetOutputPort("NN_out"),
+                        plant.get_actuation_input_port());
+        // plant -> NN
+        builder.Connect(plant.get_continuous_state_output_port(),
+                        nn_system->GetInputPort("NN_in"));
+
+        // Add visualizer
+        ConnectDrakeVisualizer(&builder, scene_graph);
+
+        lcm::DrakeLcm lcm;
+        lcm.StartReceiveThread();
+
+        // build diagram
+        auto diagram = builder.Build();
+        // time.sleep(2.0);
+        RenderSystemWithGraphviz(*diagram);
+
+        // construct simulator
+        systems::Simulator<double> simulator(*diagram);
+
+        simulator.set_publish_every_time_step(false);
+        simulator.set_target_realtime_rate(real_time_rate);
+        simulator.Initialize();
+      float sim_duration = 5.;
+      simulator.StepTo(sim_duration);
     }
+    private:
+      drake::systems::DrakeNet *neural_network_;
 };
 } // namespace drake
 
@@ -158,11 +154,10 @@ struct Net : drake::systems::DrakeNet {
 
 int main(){
     // Create a new Net.
-    // Net net;
-    //auto nnTest = NNTestSetup(&net);
-    drake::NNTestSetup{1776};
-    // auto nnTest = NNTestSetup{1776};
-    // nnTest.runSimulation() # <- Get this working!!!
+    Net net;
+    auto nnTest = drake::NNTestSetup{&net};
+    //drake::NNTestSetup{1776};
+    nnTest.RunSimulation(); // <- Get this working!!!
     return 0;
 }
 
