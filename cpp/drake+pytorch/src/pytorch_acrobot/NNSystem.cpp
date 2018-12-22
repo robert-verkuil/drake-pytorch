@@ -10,7 +10,8 @@ namespace systems {
 
 // Currently hardcoded to only support vector in and vector out.
 // User needs to specify how many input and output units.
-NNSystem::NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs)
+template <typename T>
+NNSystem<T>::NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs)
     //: LeafSystem<double>(SystemTypeTag<systems::NNSystem>{}), // Will need to enable this again!
     : //LeafSystem<double>(SystemTypeTag<NNSystem>{}),
       neural_network_(neural_network),
@@ -34,12 +35,13 @@ NNSystem::NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs)
 //    : NNSystem<T>(other.get_num_input_ports(), other.get_input_port(0).size()) {}
 
 // The NN inference method.
-void NNSystem::Forward(const Context<double>& context,
-                       BasicVector<double>* out) const {
+template <typename T>
+void NNSystem<T>::Forward(const Context<T>& context,
+                       BasicVector<T>* out) const {
   // Have to convert input to a torch tensor
   torch::Tensor in = torch::zeros({n_inputs_});
   auto in_a = in.accessor<float,1>();
-  const BasicVector<double>* input_vector = this->EvalVectorInput(context, 0);
+  const BasicVector<T>* input_vector = this->EvalVectorInput(context, 0);
   for (int i=0; i<n_inputs_; i++){
       in_a[i] = input_vector->GetAtIndex(i);
   }

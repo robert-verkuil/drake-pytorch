@@ -14,10 +14,6 @@ namespace systems {
 struct DrakeNet : torch::nn::Module {
   virtual torch::Tensor forward(torch::Tensor x) = 0;
 };
-//struct DrakeNet : torch::nn::Module {
-//  virtual int forward() = 0;
-//};
-//typedef torch::nn::Module DrakeNet;
 
 /// A neural network system that accepts, inputs, parameters, and produces and output.
 /// Supports gradients, and is powered by Torchlib, the c++ frontend to PyTorch.
@@ -40,7 +36,8 @@ struct DrakeNet : torch::nn::Module {
 /// TODO: these statements valid?
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
-class NNSystem final : public drake::systems::LeafSystem<double> {
+template <typename T>
+class NNSystem final : public drake::systems::LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(NNSystem) // Sure?
 
@@ -53,20 +50,22 @@ class NNSystem final : public drake::systems::LeafSystem<double> {
 //  explicit NNSystem(const NNSystem<U>&);
 
   /// Returns the output port on which the NN output is presented.
-  const OutputPort<double>& get_output_port() const {
-    return LeafSystem<double>::get_output_port(0);
+  const OutputPort<T>& get_output_port() const {
+    return LeafSystem<T>::get_output_port(0);
   }
 
  private:
   // Performs fwd inference of the net, which has user-specified dimensions. If the
   // input ports are not the appropriate count or size, std::runtime_error will
   // be thrown.
-  void Forward(const Context<double>& context, BasicVector<double>* sum) const;
-  //torch::nn::Module neural_network_;
+  void Forward(const Context<T>& context, BasicVector<T>* sum) const;
   DrakeNet *neural_network_; // TODO: switch to a unique pointer so that you have ownership of the network!
   int n_inputs_;
   int n_outputs_;
 };
+
+// Explicit instantiation of the double template NNSystem.
+template class NNSystem<double>;
 
 }  // namespace systems
 }  // namespace drake
