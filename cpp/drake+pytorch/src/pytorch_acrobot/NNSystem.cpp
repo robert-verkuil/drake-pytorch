@@ -13,7 +13,7 @@ namespace systems {
 template <typename T>
 NNSystem<T>::NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs)
     //: LeafSystem<double>(SystemTypeTag<systems::NNSystem>{}), // Will need to enable this again!
-    : //LeafSystem<double>(SystemTypeTag<NNSystem>{}),
+    : LeafSystem<T>(SystemTypeTag<NNSystem>{}),
       neural_network_(neural_network),
       n_inputs_(n_inputs),
       n_outputs_(n_outputs) {
@@ -24,15 +24,14 @@ NNSystem<T>::NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs)
 
   // Declare ports.
   this->DeclareInputPort("NN_in", kVectorValued, n_inputs); // TODO figure out num_inputs automatically
-  this->DeclareVectorOutputPort("NN_out", BasicVector<double>(n_outputs), // TODO figure out num_outputs automatically
+  this->DeclareVectorOutputPort("NN_out", BasicVector<T>(n_outputs), // TODO figure out num_outputs automatically
                                 &NNSystem::Forward);
 }
 
-// Copy constructor?
-//template <typename T>
-//template <typename U>
-//NNSystem<T>::NNSystem(const NNSystem<U>& other)
-//    : NNSystem<T>(other.get_num_input_ports(), other.get_input_port(0).size()) {}
+template <typename T>
+template <typename U>
+NNSystem<T>::NNSystem(const NNSystem<U>& other)
+    : NNSystem<T>(other.get_neural_network(), other.get_n_inputs(), other.get_n_outputs()) {}
 
 // The NN inference method.
 template <typename T>
@@ -42,18 +41,18 @@ void NNSystem<T>::Forward(const Context<T>& context,
   torch::Tensor in = torch::zeros({n_inputs_});
   auto in_a = in.accessor<float,1>();
   const BasicVector<T>* input_vector = this->EvalVectorInput(context, 0);
-  for (int i=0; i<n_inputs_; i++){
-      in_a[i] = input_vector->GetAtIndex(i);
-  }
+//  for (int i=0; i<n_inputs_; i++){
+//      in_a[i] = input_vector->GetAtIndex(i);
+//  }
 
   // Run the forward pass!
   torch::Tensor torch_out = neural_network_->forward(in);
 
   // Have to put this into a basicvector somehow? TODO: Use Eigen here?
   auto out_a = torch_out.accessor<float,1>();
-  for (int i=0; i<n_outputs_; i++){
-      out->SetAtIndex(i, out_a[i]); // TODO: will this the non-const version? - probably??
-  }
+//  for (int i=0; i<n_outputs_; i++){
+//      out->SetAtIndex(i, out_a[i]); // TODO: will this the non-const version? - probably??
+//  }
 }
 
 }  // namespace systems

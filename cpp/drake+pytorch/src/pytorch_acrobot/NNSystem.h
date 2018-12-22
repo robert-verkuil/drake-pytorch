@@ -45,14 +45,17 @@ class NNSystem final : public drake::systems::LeafSystem<T> {
   /// @param neural_network is a TorchLib net, a subclass of torch::nn::Module that has a forward() method.
   NNSystem(DrakeNet *neural_network, int n_inputs, int n_outputs); // TODO: what the hell type do I use here?
 
-  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion. // Sure...
-//  template <typename U>
-//  explicit NNSystem(const NNSystem<U>&);
+/// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit NNSystem(const NNSystem<U>&);
 
   /// Returns the output port on which the NN output is presented.
   const OutputPort<T>& get_output_port() const {
     return LeafSystem<T>::get_output_port(0);
   }
+  const int get_n_inputs() const { return n_inputs_; }
+  const int get_n_outputs() const { return n_outputs_; }
+  DrakeNet *get_neural_network() const { return neural_network_; }
 
  private:
   // Performs fwd inference of the net, which has user-specified dimensions. If the
