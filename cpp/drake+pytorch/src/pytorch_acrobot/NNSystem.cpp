@@ -33,14 +33,42 @@ template <typename U>
 NNSystem<T>::NNSystem(const NNSystem<U>& other)
     : NNSystem<T>(other.get_neural_network(), other.get_n_inputs(), other.get_n_outputs()) {}
 
-// The NN inference method.
 template <typename T>
 void NNSystem<T>::Forward(const Context<T>& context,
                        BasicVector<T>* out) const {
+    // For non-specialized templates, No-Op.
+}
+
+// The NN inference method. Attempting to do them with template
+// specializations to handle the gradient propagating case specifically!
+template <>
+void NNSystem<double>::Forward(const Context<double>& context,
+                       BasicVector<double>* out) const {
   // Have to convert input to a torch tensor
   torch::Tensor in = torch::zeros({n_inputs_});
   auto in_a = in.accessor<float,1>();
-  const BasicVector<T>* input_vector = this->EvalVectorInput(context, 0);
+  const BasicVector<double>* input_vector = this->EvalVectorInput(context, 0);
+  for (int i=0; i<n_inputs_; i++){
+      in_a[i] = input_vector->GetAtIndex(i);
+  }
+
+  // Run the forward pass!
+  torch::Tensor torch_out = neural_network_->forward(in);
+
+  // Have to put this into a basicvector somehow? TODO: Use Eigen here?
+  auto out_a = torch_out.accessor<float,1>();
+  for (int i=0; i<n_outputs_; i++){
+      out->SetAtIndex(i, out_a[i]); // TODO: will this the non-const version? - probably??
+  }
+}
+
+template <>
+void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
+                       BasicVector<AutoDiffXd>* out) const {
+  // Have to convert input to a torch tensor
+  torch::Tensor in = torch::zeros({n_inputs_});
+  auto in_a = in.accessor<float,1>();
+  const BasicVector<AutoDiffXd>* input_vector = this->EvalVectorInput(context, 0);
 //  for (int i=0; i<n_inputs_; i++){
 //      in_a[i] = input_vector->GetAtIndex(i);
 //  }
@@ -59,5 +87,5 @@ void NNSystem<T>::Forward(const Context<T>& context,
 }  // namespace drake
 
 // Should eventually use the non-symbolic version here!
-//DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+//DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
 //    class ::drake::systems::NNSystem)
