@@ -135,6 +135,7 @@ struct Net : drake::systems::DrakeNet {
   torch::Tensor forward(torch::Tensor x) {
     //std::cout << "torch forward method called!" << std::endl;
     // Use one of many tensor manipulation functions.
+    //
     x = torch::relu(fc1->forward(x));
     x = torch::dropout(x, /*p=*/0.5, /*train=*/true);
     x = torch::sigmoid(fc2->forward(x));

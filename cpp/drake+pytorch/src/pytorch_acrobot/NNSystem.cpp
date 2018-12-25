@@ -56,31 +56,57 @@ void NNSystem<double>::Forward(const Context<double>& context,
   torch::Tensor torch_out = neural_network_->forward(in);
 
   // Have to put this into a basicvector somehow? TODO: Use Eigen here?
-  auto out_a = torch_out.accessor<float,1>();
+  auto y_a = torch_out.accessor<float,1>();
   for (int i=0; i<n_outputs_; i++){
-      out->SetAtIndex(i, out_a[i]); // TODO: will this the non-const version? - probably??
+      out->SetAtIndex(i, y_a[i]); // TODO: will this the non-const version? - probably??
   }
 }
 
 template <>
 void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
-                       BasicVector<AutoDiffXd>* out) const {
-  // Have to convert input to a torch tensor
-  torch::Tensor in = torch::zeros({n_inputs_});
-  auto in_a = in.accessor<float,1>();
-  const BasicVector<AutoDiffXd>* input_vector = this->EvalVectorInput(context, 0);
-//  for (int i=0; i<n_inputs_; i++){
-//      in_a[i] = input_vector->GetAtIndex(i);
-//  }
+                       BasicVector<AutoDiffXd>* drake_out) const {
+  // Convert input to a torch tensor
+  torch::Tensor torch_in = torch::zeros({n_inputs_});
+  auto torch_in_a = torch_in.accessor<float,1>();
+  const BasicVector<AutoDiffXd>* drake_in = this->EvalVectorInput(context, 0);
+  for (int i=0; i<n_inputs_; i++){
+      torch_in_a[i] = drake_in->GetAtIndex(i).value();
+  }
 
-  // Run the forward pass!
-  torch::Tensor torch_out = neural_network_->forward(in);
+  // Run the forward pass.
+  // We'll do the backward pass(es) when we calculate output and it's gradients.
+  torch::Tensor torch_out = neural_network_->forward(torch_in);
+  // torch_out.backward();
 
-  // Have to put this into a basicvector somehow? TODO: Use Eigen here?
-  auto out_a = torch_out.accessor<float,1>();
-//  for (int i=0; i<n_outputs_; i++){
-//      out->SetAtIndex(i, out_a[i]); // TODO: will this the non-const version? - probably??
-//  }
+  // Do derivative calculation and pack into the output vector.
+  //   Because neural network might have multiple outputs, I can't simply use net.backward() with no argument.
+  //   Instead need to follow the advice here:
+  //   https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
+  //   auto deriv = Vector1<double>::Constant(1.0);
+  auto torch_out_a = torch_out.accessor<float,1>();
+  for (int j=0; j<n_outputs_; j++){
+      auto y_j_value = torch_out_a[j];
+      // Equation: y.derivs = dydu*u.derivs() + dydp*p.derivs()
+      // Alternate equation, for each y, y_j.deriv = sum_i  (dy_jdu[i] * u[i].deriv)   
+      //                        (#y's)  (1x#derivs)  (#u's) (1x#u's)     (1x#derivs)
+      
+      // Make empty accumulator
+      auto y_j_deriv = drake_in->GetAtIndex(0).derivatives(); // TODO ensure that this does not copy!
+      y_j_deriv = y_j_deriv.Zero(1, y_j_deriv.size());
+      std::cout << "verify that this is all zero: " << y_j_deriv << std::endl;
+
+      //   https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
+      auto output_selector = torch::zeros({1, n_outputs_});
+      output_selector[j] = 1.0; // Set the output we want a derivative w.r.t. to 1.
+      torch_out.backward(output_selector, /*keep_graph*/true);
+      auto dy_jdu = torch_in.grad(); // From Torch
+      auto dy_jdu_a = dy_jdu.accessor<float,1>(); // From Torch
+      for (int i=0; i<n_inputs_; i++){
+          auto u_i_deriv = drake_in->GetAtIndex(i).derivatives();
+          y_j_deriv += dy_jdu_a[i] * u_i_deriv;
+      }
+      drake_out->SetAtIndex(j, AutoDiffXd(y_j_value, y_j_deriv));
+  }
 }
 
 }  // namespace systems
