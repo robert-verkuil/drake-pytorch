@@ -81,45 +81,47 @@ using geometry::ConnectDrakeVisualizer;
 using multibody::MultibodyPlant;
 namespace systems {
 
-class NNGradTest
-{
-  public:
-    NNGradTest(DrakeNet *neural_network, int n_inputs, int n_outputs)
-      : neural_network_(neural_network),
-        n_inputs_(n_inputs),
-        n_outputs_(n_outputs) {
+
+void TestFC(){
+    // Make net
+    FC fc;
+
+    // Make system
+    NNSystem<AutoDiffXd> nn_system{&fc, 4, 1};
+
+    // Fix our derivatives coming into the system
+    auto context = nn_system.CreateDefaultContext();
+    VectorX<AutoDiffXd> autodiff_in{4};
+    float values[] = {1., 3., 5., 7.};
+    for (int i=0; i<4; i++){
+        // Calculate gradients w.r.t. all gradients.
+        autodiff_in[i] = AutoDiffXd(values[i], Vector1<double>::Constant(1.0));
     }
+    context->FixInputPort(0, autodiff_in);
 
-    void Test1(float real_time_rate=1.0){
-//        systems::DiagramBuilder<double> builder;
-//        SceneGraph<double>& scene_graph = *builder.AddSystem<SceneGraph>();
-//
-//        // Add
-//        auto nn_system = builder.AddSystem<NNSystem>(neural_network_, n_inputs_, n_outputs_);
-//
-//        // build diagram
-//        auto diagram = builder.Build();
-//        RenderSystemWithGraphviz(*diagram);
+    std::unique_ptr<systems::SystemOutput<AutoDiffXd>> output =
+        nn_system.AllocateOutput();
+  
+    // Check that the commanded pose starts out at zero, and that we can
+    // set a different initial position.
+    // Eigen::VectorXd expected = Eigen::VectorXd::Zero(kNumJoints * 2);
+    nn_system.CalcOutput(*context, output.get());
+    std::cout << "got: " << output->get_vector_data(0)->get_value() << std::endl;
 
-        // The plant and its context.
-        NNSystem<AutoDiffXd> system{neural_network_, n_inputs_, n_outputs_};
-        auto context = system.CreateDefaultContext();
-        context->FixInputPort(0, Vector1<AutoDiffXd>::Constant(0.0));
+      // Checks raw vector output.
+//    EXPECT_TRUE(drake::CompareMatrices(expected_torque, dut_output, 1e-12,
+//                                       drake::MatrixCompareType::absolute));
+}
 
-    }
-    private:
-      DrakeNet *neural_network_;
-      int n_inputs_;
-      int n_outputs_;
-};
+
 } // namespace systems
 } // namespace drake
 
 int main(){
-    FC net;
-    //MLP net;
-    auto nnGradTest = drake::systems::NNGradTest{&net, 4, 1};
-    nnGradTest.Test1();
+    drake::systems::TestFC();
+
+//    MLP mlp;
+//    Test1(&mlp, 4, 1);
 
     return 0;
 }

@@ -33,6 +33,10 @@
 cmake_minimum_required(VERSION 3.5.1)
 project(drake_cmake_installed)
 
+# Set Debug or release flags.
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
+# set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall")
+
 # N.B. This is a temporary flag. It only really applies to Linux, as Mac
 # does not need X11.
 option(RUN_X11_TESTS "Run tests that require X11" OFF)
