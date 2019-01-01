@@ -14,6 +14,8 @@ from pydrake.all import (
 )
 from pydrake.systems.scalar_conversion import TemplateSystem
 
+torch.set_default_tensor_type('torch.DoubleTensor')
+
 class FC(nn.Module):
     def __init__(self, layer_norm=False):
         super(FC, self).__init__()
@@ -53,6 +55,8 @@ def NNInferenceHelper(network, in_list, debug=False):
                    |
            context.p (parameters)
     '''
+    # Ensure that all network weights are doubles (TODO: change this in the future!)
+    network = network.double()
 #    drake_in = self.EvalVectorInput(context, 0)
 #    # p = context.GetParams() #TODO: figure out a way to deal with parameters
 #
@@ -62,7 +66,7 @@ def NNInferenceHelper(network, in_list, debug=False):
 
     n_inputs = len(in_list)
     just_values = np.array([item.value() for item in in_list])
-    torch_in = torch.tensor(just_values, requires_grad=True)
+    torch_in = torch.tensor(just_values, dtype=torch.double, requires_grad=True)
     if debug: print("torch_in: ", torch_in) 
 
     # Run the forward pass.

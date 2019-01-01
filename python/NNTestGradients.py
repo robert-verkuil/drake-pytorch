@@ -24,6 +24,7 @@ from NNSystemHelper import FC, MLP
 # nn_test_setup.RunSimulation()
 
 # Define network, input
+torch.set_default_tensor_type('torch.DoubleTensor')
 net = FC()
 net = MLP()
 autodiff_in = np.array([
