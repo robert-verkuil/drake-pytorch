@@ -9,6 +9,7 @@ from pydrake.all import (
     PortDataType,
 )
 from pydrake.systems.scalar_conversion import TemplateSystem
+from NNSystemHelper import NNInferenceHelper
 
 @TemplateSystem.define("NNSystem_", T_list=[float, AutoDiffXd])
 def NNSystem_(T):
