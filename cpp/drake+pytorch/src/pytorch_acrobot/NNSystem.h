@@ -67,10 +67,6 @@ class NNSystem final : public drake::systems::LeafSystem<T> {
   int n_outputs_;
 };
 
-// Explicit instantiation of the double template NNSystem.
-template class NNSystem<double>;
-template class NNSystem<::drake::AutoDiffXd>;
-
 }  // namespace systems
 }  // namespace drake
 

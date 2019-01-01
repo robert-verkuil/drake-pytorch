@@ -100,3 +100,4 @@ class NNTestSetup:
         simulator.Initialize()
         sim_duration = 5.
         simulator.StepTo(sim_duration)
+        print("stepping complete")

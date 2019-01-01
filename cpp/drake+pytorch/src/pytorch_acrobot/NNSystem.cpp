@@ -58,14 +58,13 @@ void NNSystem<double>::Forward(const Context<double>& context,
   // Have to put this into a basicvector somehow? TODO: Use Eigen here?
   auto y_a = torch_out.accessor<float,1>();
   for (int i=0; i<n_outputs_; i++){
-      out->SetAtIndex(i, y_a[i]); // TODO: will this the non-const version? - probably??
+      out->SetAtIndex(i, y_a[i]);
   }
 }
 
 template <>
 void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
                        BasicVector<AutoDiffXd>* drake_out) const {
-  std::cout << "[DEBUG] NNSystem Forward method called." << std::endl;
 
   // Convert input to a torch tensor
   torch::Tensor torch_in = torch::zeros({n_inputs_}, torch::TensorOptions().requires_grad(true));
@@ -78,8 +77,6 @@ void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
   // Run the forward pass.
   // We'll do the backward pass(es) when we calculate output and it's gradients.
   torch::Tensor torch_out = neural_network_->forward(torch_in);
-  std::cout << "torch_out: "  << torch_out << std::endl;
-  // torch_out.backward();
 
   // Do derivative calculation and pack into the output vector.
   //   Because neural network might have multiple outputs, I can't simply use net.backward() with no argument.
@@ -95,19 +92,14 @@ void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
       
       // Make empty accumulator
       auto y_j_deriv = drake_in->GetAtIndex(0).derivatives(); // TODO ensure that this does not copy!
-      // std::cout << "iter " << j << " running" << std::endl;
       y_j_deriv = y_j_deriv.Zero(y_j_deriv.size());
-      // std::cout << "verify that this is all zero: " << std::endl;
 
       //   https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
       auto output_selector = torch::zeros({1, n_outputs_});
       output_selector[j] = 1.0; // Set the output we want a derivative w.r.t. to 1.
-      // std::cout << "about to call torch backward" << std::endl;
       torch_out.backward(output_selector, /*keep_graph*/true);
-      // std::cout << "AFTER call torch backward " << std::endl;
       auto dy_jdu = torch_in.grad(); // From Torch
       auto dy_jdu_a = dy_jdu.accessor<float,1>(); // From Torch
-      // std::cout << "AFTER creating accessor" << std::endl;
       for (int i=0; i<n_inputs_; i++){
           auto u_i_deriv = drake_in->GetAtIndex(i).derivatives();
           std::cout << "dy_jdu_a[i] * u_i_deriv = " << dy_jdu_a[i] << " * " <<  u_i_deriv << std::endl;
@@ -122,5 +114,5 @@ void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
 }  // namespace drake
 
 // Should eventually use the non-symbolic version here!
-//DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
-//    class ::drake::systems::NNSystem)
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::systems::NNSystem)
