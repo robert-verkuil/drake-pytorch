@@ -37,6 +37,7 @@ from pydrake.examples.acrobot import AcrobotPlant
 from NNSystem import NNSystem, NNSystem_
 from NNTestSetup import NNTestSetup
 from NNSystemHelper import FC, MLP
+from reference_impls.dircol import make_real_dircol_mp 
 
 def make_trivial_mp():
     prog = mp.MathematicalProgram()

@@ -27,8 +27,15 @@ from underactuated import (
     PlanarRigidBodyVisualizer
 )
 
-
+tree = None
+plant = None
+context = None
+dircol = None
 def make_real_dircol_mp():
+    global tree
+    global plant
+    global context
+    global dircol
     # expmt = "acrobot" # State: (theta1, theta2, theta1_dot, theta2_dot) Input: Elbow torque
 
     tree = RigidBodyTree("/opt/underactuated/src/acrobot/acrobot.urdf",

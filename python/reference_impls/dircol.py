@@ -18,7 +18,15 @@ from underactuated import (
 )
 
 
+tree = None
+plant = None
+context = None
+dircol = None
 def make_real_dircol_mp(expmt="cartpole", seed=1776):
+    global tree
+    global plant
+    global context
+    global dircol
     # TODO: use the seed in some meaningful way:
     # https://github.com/RobotLocomotion/drake/blob/master/systems/stochastic_systems.h
 
@@ -67,9 +75,9 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
                                     dircol.final_state())
     # dircol.AddLinearConstraint(dircol.final_state() == final_state)
 
-    R = 10  # Cost on input "effort".
-    u = dircol.input()
-    dircol.AddRunningCost(R*u[0]**2)
+#    R = 10  # Cost on input "effort".
+#    u = dircol.input()
+#    dircol.AddRunningCost(R*u[0]**2)
 
     # Add a final cost equal to the total duration.
     dircol.AddFinalCost(dircol.time())
@@ -80,5 +88,5 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
                                                             final_state)))
     dircol.SetInitialTrajectory(PiecewisePolynomial(), initial_x_trajectory)
 
-    return dircol
+    return dircol, tree
 
