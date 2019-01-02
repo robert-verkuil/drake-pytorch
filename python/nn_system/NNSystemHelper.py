@@ -17,20 +17,22 @@ from pydrake.systems.scalar_conversion import TemplateSystem
 torch.set_default_tensor_type('torch.DoubleTensor')
 
 class FC(nn.Module):
-    def __init__(self, layer_norm=False):
+    def __init__(self, n_inputs):
         super(FC, self).__init__()
-        self.fc1 = nn.Linear(2, 1)
+        self.n_inputs = n_inputs
+        self.fc1 = nn.Linear(self.n_inputs, 1)
     
     def forward(self, x):
         x = self.fc1(x)
         return x
 
 class MLP(nn.Module):
-    def __init__(self, layer_norm=False):
+    def __init__(self, n_inputs, layer_norm=False):
         super(MLP, self).__init__()
+        self.n_inputs = n_inputs
         self.layer_norm = layer_norm
 
-        self.l1 = nn.Linear(2, 64)
+        self.l1 = nn.Linear(self.n_inputs, 64)
         self.ln1 = nn.LayerNorm(64)
         self.tanh1 = torch.tanh
         self.l2 = nn.Linear(64, 64)

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from __future__ import print_function, absolute_import
 
 import math
@@ -89,4 +91,28 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
     dircol.SetInitialTrajectory(PiecewisePolynomial(), initial_x_trajectory)
 
     return dircol, tree
+
+
+# Helper that applies some cost function involving a 
+# policy Pi to every timestep of a Mathematical Program.
+#
+# @param prog A drake mathematical program.
+# @param Pi An autodiffable function that accepts a vector of AutoDiffXd's 
+#        representing state and outputs a vector of AutoDiffXd's representing an action.
+# @param mycost A function that defines the cost at a particular timestep, 
+#        as a function of the policy, x_t, and u_t.
+def apply_running_policy_cost(prog, Pi, mycost):
+    def ad_fn_cost_per_timestep(state_concat_inp):
+        # Unpack variables
+        x_sz, u_sz = len(prog.state(0)), len(prog.input(0))
+        assert len(state_concat_inp) == x_sz + u_sz
+        x, u = state_concat_inp[:x_sz], state_concat_inp[-u_sz:]
+
+        cost = mycost(Pi, x, u) #TODO: ensure that autodiff's flow through this thing...
+        assert len(cost) == 1
+
+        return cost[0]
+
+    for t in range(21): #TODO: undo the hard coding here
+        prog.AddCost(ad_fn_cost_per_timestep, np.hstack((prog.state(t), prog.input(t))))
 
