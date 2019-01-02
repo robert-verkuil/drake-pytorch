@@ -93,26 +93,47 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
     return dircol, tree
 
 
+
+def make_pytorch_net_autodiffable(pytorch_net):
+    # Take the raw pytorch net reference, and create a policy function that can 
+    # support AutoDiffXd input -> AutoDiffXd output, which is needed for any custom
+    # PyFunction Cost applied to a Drake Mathematical Program!
+    if pytorch_net is None:
+        # If not pytorch_net is provided, make a trivial policy that support AD in and out.
+        def Pi(x_t):
+            return (x_t[0]-2.)*(x_t[1]-2.)
+    else:
+        # Else, wrap the pytorch_net so that is supports AD in and out.
+        def Pi(x_t):
+            from nn_system.NNSystemHelper import NNInferenceHelper
+            in_list = list(x_t)
+            out_list = NNInferenceHelper(pytorch_net, in_list)
+            return out_list[0]
+    return Pi
+
+
 # Helper that applies some cost function involving a 
 # policy Pi to every timestep of a Mathematical Program.
 #
 # @param prog A drake mathematical program.
-# @param Pi An autodiffable function that accepts a vector of AutoDiffXd's 
-#        representing state and outputs a vector of AutoDiffXd's representing an action.
 # @param mycost A function that defines the cost at a particular timestep, 
-#        as a function of the policy, x_t, and u_t.
-def apply_running_policy_cost(prog, Pi, mycost):
-    def ad_fn_cost_per_timestep(state_concat_inp):
+#        as a function of the x_t, and u_t.
+def add_running_custom_cost_fn(prog, mycost):
+    # Define the custom Cost function that we will be applying to each step.
+    # Take care to ensure that AutoDiffXd input -> output is supported.
+    # Also ensure that the output is a single AutoDiffXd value.
+    def custom_cost_fn(state_concat_inp):
         # Unpack variables
         x_sz, u_sz = len(prog.state(0)), len(prog.input(0))
         assert len(state_concat_inp) == x_sz + u_sz
         x, u = state_concat_inp[:x_sz], state_concat_inp[-u_sz:]
 
-        cost = mycost(Pi, x, u) #TODO: ensure that autodiff's flow through this thing...
+        cost = mycost(x, u) #TODO: ensure that autodiff's flow through this thing...
         assert len(cost) == 1
 
         return cost[0]
 
+    # Apply our custom PyFunction cost to every timestep of the mathematical program.
     for t in range(21): #TODO: undo the hard coding here
-        prog.AddCost(ad_fn_cost_per_timestep, np.hstack((prog.state(t), prog.input(t))))
+        prog.AddCost(custom_cost_fn, np.hstack((prog.state(t), prog.input(t))))
 
