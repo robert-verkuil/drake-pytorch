@@ -6,6 +6,8 @@ import math
 import numpy as np
 import random
 
+import matplotlib.pyplot as plt
+
 from pydrake.all import (
     DirectCollocation, 
     FloatingBaseType,
@@ -92,6 +94,58 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
 
     return dircol, tree
 
+
+def state_to_tip_coord_cartpole(state_vec):
+    # State: (x, theta, x_dot, theta_dot)
+    x, theta, _, _ = state_vec
+    pole_length = 0.5 # manually looked this up
+    return (x-pole_length*np.sin(theta), pole_length-np.cos(theta))
+def state_to_tip_coord_acrobot(state_vec):
+    # State: (theta1, theta2, theta1_dot, theta2_dot)
+    theta1, theta2, _, _ = state_vec
+    link1_length = 1
+    link2_length = 2
+    return (-link1_length*np.sin(theta1)  -link2_length*np.sin(theta1+theta2), 
+            -link1_length*np.cos(theta1)  -link2_length*np.cos(theta1+theta2))
+state_to_tip_coord_fns = {
+    "cartpole": state_to_tip_coord_cartpole,
+    "acrobot": state_to_tip_coord_acrobot,
+}
+
+
+def visualize_trajectory(sample_times, values, expmt=None, create_figure=True):
+    assert expmt is not None
+    if create_figure:
+        plt.figure()
+        plt.title('Tip trajectories')
+        plt.xlabel('x')
+        plt.ylabel('y')
+
+    coords = [state_to_tip_coord_fns[expmt](state) for state in values.T]
+    x, y = zip(*coords)
+    plt.plot(x, y, '-o', label=vis_cb_counter)
+     
+# Get rid of need for global vars here, if possible?
+vis_cb_counter = 0
+def add_visualization_callback(prog, expmt=None):
+    assert expmt is not None
+
+    plt.figure()
+    plt.title('Tip trajectories')
+    plt.xlabel('x')
+    plt.ylabel('y')
+
+    def MyVisualization(sample_times, values):
+        global vis_cb_counter
+
+        vis_cb_counter += 1
+        if vis_cb_counter % 50 != 0:
+            return
+        
+        visualize_trajectory(sample_times, values, expmt=expmt, create_figure=False)
+
+    print(id(dircol))
+    prog.AddStateTrajectoryCallback(MyVisualization)
 
 
 def make_pytorch_net_autodiffable(pytorch_net):
