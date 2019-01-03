@@ -122,18 +122,18 @@ def add_running_custom_cost_fn(prog, mycost):
     # Define the custom Cost function that we will be applying to each step.
     # Take care to ensure that AutoDiffXd input -> output is supported.
     # Also ensure that the output is a single AutoDiffXd value.
-    timestep = 0
+    # timestep = 0
     def custom_cost_fn(state_concat_inp):
-        global timestep
+        # global timestep
         # Unpack variables
         x_sz, u_sz = len(prog.state(0)), len(prog.input(0))
         assert len(state_concat_inp) == x_sz + u_sz
         x, u = state_concat_inp[:x_sz], state_concat_inp[-u_sz:]
 
-        cost = mycost(x, u, timestep) #TODO: ensure that autodiff's flow through this thing...
+        cost = mycost(x, u, 0) #TODO: ensure that autodiff's flow through this thing... #TODO: actually use a timestamp here.
         assert len(cost) == 1
 
-        timestep += 1
+        # timestep += 1
         return cost[0]
 
     # Apply our custom PyFunction cost to every timestep of the mathematical program.
