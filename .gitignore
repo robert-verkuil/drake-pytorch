@@ -1,3 +1,5 @@
+python/playgrounds/importing/data/
+
 # Get rid of build directories
 build/*
 cpp/drake+pytorch/build/*
