@@ -26,19 +26,50 @@ class FC(nn.Module):
         x = self.fc1(x)
         return x
 
+class FCBIG(nn.Module):
+    def __init__(self):
+        super(FCBIG, self).__init__()
+        self.fc2 = nn.Linear(4, 16)
+        self.fc3 = nn.Linear(16, 1)
+
+    def forward(self, x):
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+class MLPSMALL(nn.Module):
+    def __init__(self, n_inputs=4, layer_norm=False):
+        super(MLPSMALL, self).__init__()
+        self.n_inputs = n_inputs
+        self.layer_norm = layer_norm
+
+        h_sz = 16
+        self.l1 = nn.Linear(self.n_inputs, h_sz)
+        self.ln1 = nn.LayerNorm(h_sz)
+        self.tanh1 = torch.tanh
+        self.l3 = nn.Linear(h_sz, 1)
+    
+    def forward(self, x):
+        x = self.l1(x)
+        if self.layer_norm: x = self.ln1(x)
+        x = self.tanh1(x)
+        x = self.l3(x)
+        return x
+
 class MLP(nn.Module):
-    def __init__(self, n_inputs, layer_norm=False):
+    def __init__(self, n_inputs=4, layer_norm=False):
         super(MLP, self).__init__()
         self.n_inputs = n_inputs
         self.layer_norm = layer_norm
 
-        self.l1 = nn.Linear(self.n_inputs, 64)
-        self.ln1 = nn.LayerNorm(64)
+        h_sz = 16
+        self.l1 = nn.Linear(self.n_inputs, h_sz)
+        self.ln1 = nn.LayerNorm(h_sz)
         self.tanh1 = torch.tanh
-        self.l2 = nn.Linear(64, 64)
-        self.ln2 = nn.LayerNorm(64)
+        self.l2 = nn.Linear(h_sz, h_sz)
+        self.ln2 = nn.LayerNorm(h_sz)
         self.tanh2 = torch.tanh
-        self.l3 = nn.Linear(64, 1)
+        self.l3 = nn.Linear(h_sz, 1)
     
     def forward(self, x):
         x = self.l1(x)
@@ -50,7 +81,89 @@ class MLP(nn.Module):
         x = self.l3(x)
         return x
 
-def NNInferenceHelper(network, in_list, debug=False):
+class CONV(nn.Module):
+    def __init__(self):
+        super(CONV, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 84)
+        self.fc2 = nn.Linear(84, 16)
+        self.fc3 = nn.Linear(16, 1)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+    
+
+def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
+    def constraint(uxT):
+    # ##############################
+    # #    JUST FOR DEBUGGING!
+    # ##############################
+    #     for elem in uxT:
+    #         print(elem.derivatives())
+    #     print()
+    #     return uxT
+    # prog.AddConstraint(constraint, -np.array([.1]*5), np.array([.1]*5), np.hstack((prog.input(0), prog.state(0))))
+    # ##############################
+
+        u = uxT[:num_inputs]
+        x = uxT[num_inputs:num_inputs+num_states]
+        T = uxT[num_inputs+num_states:]
+        
+        # We assume that .derivative() at index i 
+        # of uxT is a one hot with only derivatives(i) set. Check this here.
+        n_derivatives = len(u[0].derivatives())
+        assert n_derivatives == sum((num_inputs, num_states, num_params))
+        for i, elem in enumerate(uxT): # TODO: is uxT iterable without any reshaping?
+            assert n_derivatives == len(elem.derivatives())
+            one_hot = np.zeros((n_derivatives))
+            one_hot[i] = 1
+            np.testing.assert_array_equal(elem.derivatives(), one_hot)
+        
+        # Construct a model with params T
+        net = kNetConstructor()
+        params_loaded = 0
+        for param in net.parameters():
+            T_slice = np.array([T[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
+            param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
+            
+        # Do forward pass.
+        x_values = np.array([elem.value() for elem in x])
+        torch_in = torch.from_numpy(x_values)
+        torch_out = net.forward(torch_in)
+        y_values = torch_out.clone().detach().numpy()
+        
+        # Calculate all gradients w.r.t. single output.
+        # WARNING: ONLY WORKS IF NET HAS ONLY ONE OUTPUT.
+        torch_out.backward(retain_graph=True)
+        
+        y_derivatives = np.zeros(n_derivatives)
+        y_derivatives[:num_inputs] = np.zeros(num_inputs) # No gradient w.r.t. inputs yet.
+        y_derivatives[num_inputs:num_inputs+num_states] = torch_in.grad
+    #     print("hi: ", [(-1 if param.grad is None else param.grad.size()) for param in net.parameters()])
+        T_derivatives = []
+        for param in net.parameters():
+            if param.grad is None:
+                T_derivatives.append( [0.]*param.data.nelement() )
+            else:
+                T_derivatives.append( param.grad.numpy().flatten() ) # Flatten will return a copy.
+        y_derivatives[num_inputs+num_states:] =  np.hstack(T_derivatives)
+        
+        y = AutoDiffXd(y_values, y_derivatives)
+        
+        # constraint is Pi(x) == u
+        return u - y
+    return constraint
+
+
+def NNInferenceHelper(network, in_list, param_list, debug=False):
     '''
     u (inputs) --> NN => y (outputs)
                    ^
@@ -71,6 +184,11 @@ def NNInferenceHelper(network, in_list, debug=False):
     torch_in = torch.tensor(just_values, dtype=torch.double, requires_grad=True)
     if debug: print("torch_in: ", torch_in) 
 
+#    n_params = len(param_list)
+#    param_values = np.array([[param.value() for param in param_list])
+#    # Now assign the param values to the network!
+#    # TODO
+
     # Run the forward pass.
     # We'll do the backward pass(es) when we calculate output and it's gradients.
     torch_out = network.forward(torch_in)
@@ -90,21 +208,33 @@ def NNInferenceHelper(network, in_list, debug=False):
         if debug: print("\niter j: ", j)
         y_j_value = torch_out[j].clone().detach().numpy()
         # Equation: y.derivs = dydu*u.derivs() + dydp*p.derivs()
-        # Alternate equation, for each y, y_j.deriv = sum_i  (dy_jdu[i] * u[i].deriv)
-        #                          (#y's) (1x#derivs) (#u's)  (1x#u's)    (1x#derivs)
+        # Alternate equation, for each y, y_j.deriv = sum_i  (dy_jdu[i] * u[i].deriv) + sum_k  (dy_jdp[k] * p[k].deriv)
+        #                          (#y's) (1x#derivs) (#u's)  (1x#u's)    (1x#derivs)   (#p's)  (1x#p's)    (1x#derivs)
 
         # Make empty accumulator
         y_j_deriv = np.zeros_like(in_list[0].derivatives())
         
+        # Fill the graph with gradients with respect to output y_j.
         # https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
         output_selector = torch.zeros(1, n_outputs, dtype=torch.double)
         output_selector[j] = 1.0 # Set the output we want a derivative w.r.t. to 1.
         torch_out.backward(output_selector, retain_graph=True)
+
+        # Calculate the contribution to y_j.derivs w.r.t all the inputs.
         dy_jdu = torch_in.grad.numpy() # From Torch, give us back a numpy object
         for i in range(n_inputs):
             u_i_deriv = in_list[i].derivatives()
             if debug: print("dy_jdu_a[i] * u_i_deriv = ", dy_jdu[i], " * ",  u_i_deriv)
             y_j_deriv += dy_jdu[i] * u_i_deriv;
+
+        # Calculate the contribution to y_j.derivs w.r.t all the params.
+        # Get the gradient
+#        for k in range(n_params):
+#            p_k_deriv = param_list[k].derivatives()
+#            if debug: print("dy_jdp_a[k] * p_k_deriv = ", dy_jdp[k], " * ",  u_i_deriv)
+#            y_j_deriv += dy_jdu[i] * u_i_deriv;
+
+
         if debug: print("putting into output: ", y_j_value, ", ", y_j_deriv)
         tmp = AutoDiffXd(y_j_value, y_j_deriv)
         out_list[j] = tmp
