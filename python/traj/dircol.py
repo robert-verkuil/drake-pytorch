@@ -94,6 +94,96 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
 
     return dircol, tree
 
+# Currently only set up to make pendulum examples
+def make_multiple_dircol_trajectories(num_trajectories, num_samples):
+    from pydrake.all import (AutoDiffXd, Expression, Variable,
+                         MathematicalProgram, SolverType, SolutionResult,
+                         DirectCollocationConstraint, AddDirectCollocationConstraint,
+                         PiecewisePolynomial,
+                        )
+    import pydrake.symbolic as sym
+    from pydrake.examples.pendulum import (PendulumPlant)
+
+    plant = PendulumPlant()
+    context = plant.CreateDefaultContext()
+    dircol_constraint = DirectCollocationConstraint(plant, context)
+
+    # num_trajectories = 15;
+    # num_samples = 15;
+    prog = MathematicalProgram()
+    # K = prog.NewContinuousVariables(1,7,'K')
+
+    def cos(x):
+        if isinstance(x, AutoDiffXd):
+            return x.cos()
+        elif isinstance(x, Variable):
+            return sym.cos(x)
+        return math.cos(x)
+
+    def sin(x):
+        if isinstance(x, AutoDiffXd):
+            return x.sin()
+        elif isinstance(x, Variable):
+            return sym.sin(x)
+        return math.sin(x)
+
+    def final_cost(x):
+        return 100.*(cos(.5*x[0])**2 + x[1]**2)   
+        
+    h = [];
+    u = [];
+    x = [];
+    xf = (math.pi, 0.)
+    for ti in range(num_trajectories):
+        h.append(prog.NewContinuousVariables(1))
+        prog.AddBoundingBoxConstraint(.01, .2, h[ti])
+        u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
+        x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
+
+        x0 = (.8 + math.pi - .4*ti, 0.0)    
+        prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
+
+        # prog.AddBoundingBoxConstraint(xf, xf, x[ti][:,-1])
+
+        for i in range(num_samples-1):
+            AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
+
+        for i in range(num_samples):
+            prog.AddQuadraticCost([1.], [0.], u[ti][:,i])
+    #        prog.AddConstraint(control, [0.], [0.], np.hstack([x[ti][:,i], u[ti][:,i], K.flatten()]))
+    #        prog.AddBoundingBoxConstraint([0.], [0.], u[ti][:,i])
+    #        prog.AddConstraint(u[ti][0,i] == (3.*sym.tanh(K.dot(control_basis(x[ti][:,i]))[0])))  # u = 3*tanh(K * m(x))
+            
+        prog.AddCost(final_cost, x[ti][:,-1])
+
+    #prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)  # Derivative checking disabled. (otherwise it complains on the saturation)
+    prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
+
+    # result = prog.Solve()
+    # print(result)
+    # print(prog.GetSolution(K))
+    # print(prog.GetSolution(K).dot(control_basis(x[0][:,0])))
+
+    #if (result != SolutionResult.kSolutionFound):
+    #    f = open('/tmp/snopt.out', 'r')
+    #    print(f.read())
+    #    f.close()
+    return prog, h, u, x
+
+def plot_multiple_dircol_trajectories(prog, h, u, x, num_trajectories, num_samples):
+    plt.title('Pendulum trajectories')
+    plt.xlabel('theta')
+    plt.ylabel('theta_dot')
+    for ti in range(num_trajectories):
+        h_sol = prog.GetSolution(h[ti])[0]    
+        breaks = [h_sol*i for i in range(num_samples)]
+        knots = prog.GetSolution(x[ti])
+        x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
+        t_samples = np.linspace(breaks[0], breaks[-1], 45)
+        x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
+        plt.plot(x_samples[0,:], x_samples[1,:])
+        plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
+
 
 def state_to_tip_coord_cartpole(state_vec):
     # State: (x, theta, x_dot, theta_dot)
