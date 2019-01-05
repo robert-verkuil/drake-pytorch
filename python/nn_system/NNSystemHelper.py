@@ -17,7 +17,7 @@ from pydrake.systems.scalar_conversion import TemplateSystem
 torch.set_default_tensor_type('torch.DoubleTensor')
 
 class FC(nn.Module):
-    def __init__(self, n_inputs):
+    def __init__(self, n_inputs=4):
         super(FC, self).__init__()
         self.n_inputs = n_inputs
         self.fc1 = nn.Linear(self.n_inputs, 1)
@@ -27,9 +27,10 @@ class FC(nn.Module):
         return x
 
 class FCBIG(nn.Module):
-    def __init__(self):
+    def __init__(self, n_inputs=4):
         super(FCBIG, self).__init__()
-        self.fc2 = nn.Linear(4, 16)
+        self.n_inputs = n_inputs
+        self.fc2 = nn.Linear(self.n_inputs, 16)
         self.fc3 = nn.Linear(16, 1)
 
     def forward(self, x):
@@ -133,10 +134,13 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
         for param in net.parameters():
             T_slice = np.array([T[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
             param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
+            # print("param.data: ", param.data)
+            # print("loaded param shape: ", list(param.data.size()))
+            params_loaded += param.data.nelement() 
             
         # Do forward pass.
         x_values = np.array([elem.value() for elem in x])
-        torch_in = torch.from_numpy(x_values)
+        torch_in = torch.tensor(x_values, requires_grad=True)
         torch_out = net.forward(torch_in)
         y_values = torch_out.clone().detach().numpy()
         
@@ -146,14 +150,22 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
         
         y_derivatives = np.zeros(n_derivatives)
         y_derivatives[:num_inputs] = np.zeros(num_inputs) # No gradient w.r.t. inputs yet.
+        # print("torch_in.grad: ", torch_in.grad)
         y_derivatives[num_inputs:num_inputs+num_states] = torch_in.grad
     #     print("hi: ", [(-1 if param.grad is None else param.grad.size()) for param in net.parameters()])
         T_derivatives = []
         for param in net.parameters():
             if param.grad is None:
+                # print("got grad of None, making tensor of ", param.data.nelement(), " zeros")
                 T_derivatives.append( [0.]*param.data.nelement() )
+                # print("extracted (0) data shape: ", list(param.data.size()))
             else:
+                # print("got grad, making tensor of size", param.grad.nelement())
+		assert param.data.nelement() == param.grad.nelement()
+		np.testing.assert_array_equal( list(param.data.size()), list(param.grad.size()) )
                 T_derivatives.append( param.grad.numpy().flatten() ) # Flatten will return a copy.
+                # print("extracted grad shape: ", list(param.grad.size()))
+        assert np.hstack(T_derivatives).size == num_params
         y_derivatives[num_inputs+num_states:] =  np.hstack(T_derivatives)
         
         y = AutoDiffXd(y_values, y_derivatives)
@@ -165,7 +177,7 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
 
 def NNInferenceHelper(network, in_list, param_list, debug=False):
     '''
-    u (inputs) --> NN => y (outputs)
+    u (inputs) --> NN => y (outputsres_grad=Truee
                    ^
                    |
            context.p (parameters)
