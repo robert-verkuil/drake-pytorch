@@ -137,13 +137,14 @@ def make_multiple_dircol_trajectories(num_trajectories, num_samples):
     for ti in range(num_trajectories):
         h.append(prog.NewContinuousVariables(1))
         prog.AddBoundingBoxConstraint(.01, .2, h[ti])
+        prog.AddQuadraticCost([1.], [0.], h[ti]) # Added by me, penalize long timesteps
         u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
         x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
 
         x0 = (.8 + math.pi - .4*ti, 0.0)    
         prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
 
-        # prog.AddBoundingBoxConstraint(xf, xf, x[ti][:,-1])
+        prog.AddBoundingBoxConstraint(xf, xf, x[ti][:,-1])
 
         for i in range(num_samples-1):
             AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
@@ -154,7 +155,7 @@ def make_multiple_dircol_trajectories(num_trajectories, num_samples):
     #        prog.AddBoundingBoxConstraint([0.], [0.], u[ti][:,i])
     #        prog.AddConstraint(u[ti][0,i] == (3.*sym.tanh(K.dot(control_basis(x[ti][:,i]))[0])))  # u = 3*tanh(K * m(x))
             
-        prog.AddCost(final_cost, x[ti][:,-1])
+        # prog.AddCost(final_cost, x[ti][:,-1])
 
     #prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)  # Derivative checking disabled. (otherwise it complains on the saturation)
     prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
@@ -185,11 +186,16 @@ def plot_multiple_dircol_trajectories(prog, h, u, x, num_trajectories, num_sampl
         plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
 
 
+def state_to_tip_coord_pendulum(state_vec):
+    # State: (x, theta, x_dot, theta_dot)
+    theta, theta_dot = state_vec
+    pole_length = 0.5 # manually looked this up
+    return (pole_length*np.sin(theta), pole_length*(-np.cos(theta)))
 def state_to_tip_coord_cartpole(state_vec):
     # State: (x, theta, x_dot, theta_dot)
     x, theta, _, _ = state_vec
     pole_length = 0.5 # manually looked this up
-    return (x-pole_length*np.sin(theta), pole_length-np.cos(theta))
+    return (x-pole_length*np.sin(theta), pole_length*(-np.cos(theta)))
 def state_to_tip_coord_acrobot(state_vec):
     # State: (theta1, theta2, theta1_dot, theta2_dot)
     theta1, theta2, _, _ = state_vec
@@ -198,13 +204,14 @@ def state_to_tip_coord_acrobot(state_vec):
     return (-link1_length*np.sin(theta1)  -link2_length*np.sin(theta1+theta2), 
             -link1_length*np.cos(theta1)  -link2_length*np.cos(theta1+theta2))
 state_to_tip_coord_fns = {
+    "pendulum": state_to_tip_coord_pendulum,
     "cartpole": state_to_tip_coord_cartpole,
     "acrobot": state_to_tip_coord_acrobot,
 }
 
 
 def visualize_trajectory(sample_times, values, expmt, create_figure=True):
-    assert expmt in ("acrobot", "cartpole")
+    assert expmt in state_to_tip_coord_fns.keys()
     if create_figure:
         plt.figure()
         plt.title('Tip trajectories')
@@ -213,12 +220,17 @@ def visualize_trajectory(sample_times, values, expmt, create_figure=True):
 
     coords = [state_to_tip_coord_fns[expmt](state) for state in values.T]
     x, y = zip(*coords)
-    plt.plot(x, y, '-o', label=vis_cb_counter)
-     
+    # plt.plot(x, y, '-o', label=vis_cb_counter)
+    x = np.array(x)
+    y = np.array(y)
+    plt.quiver(x[:-1], y[:-1], x[1:]-x[:-1], y[1:]-y[:-1], scale_units='xy', angles='xy', scale=1)
+    plt.plot(x[0], y[0], 'go')
+    plt.plot(x[-1], y[-1], 'ro')
+
 # Get rid of need for global vars here, if possible?
 vis_cb_counter = 0
 def add_visualization_callback(prog, expmt):
-    assert expmt in ("acrobot", "cartpole")
+    assert expmt in state_to_tip_coord_fns.keys()
 
     plt.figure()
     plt.title('Tip trajectories')
