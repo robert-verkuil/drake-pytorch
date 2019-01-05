@@ -176,7 +176,7 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
     return constraint
 
 
-def NNInferenceHelper(network, in_list, param_list, debug=False):
+def NNInferenceHelper(network, in_list, debug=False):
     '''
     u (inputs) --> NN => y (outputsres_grad=Truee
                    ^
@@ -193,7 +193,8 @@ def NNInferenceHelper(network, in_list, param_list, debug=False):
 #    # import pdb; pdb.set_trace()
 
     n_inputs = len(in_list)
-    just_values = np.array([item.value() for item in in_list])
+    #just_values = np.array([item.value() for item in in_list])
+    just_values = np.array([item for item in in_list])
     torch_in = torch.tensor(just_values, dtype=torch.double, requires_grad=True)
     if debug: print("torch_in: ", torch_in) 
 
@@ -216,6 +217,11 @@ def NNInferenceHelper(network, in_list, param_list, debug=False):
     #     https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
     n_outputs = torch_out.shape[0]
     out_list = [0]*n_outputs
+
+    # REMOVE THIS!!!
+    out_list[0] = torch_out[0].clone().detach().numpy()
+    return out_list
+    # REMOVE THIS!!!
 
     for j in range(n_outputs):
         if debug: print("\niter j: ", j)
