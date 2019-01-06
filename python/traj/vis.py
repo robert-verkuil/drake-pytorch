@@ -43,6 +43,7 @@ def plot_multiple_dircol_trajectories(prog, h, u, x, num_trajectories, num_sampl
         t_samples = np.linspace(breaks[0], breaks[-1], 3*num_samples)
         x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
         plt.plot(x_samples[0,:], x_samples[1,:])
+        plt.plot(x_samples[0,0], x_samples[1,0],   'go')
         plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
 
 
@@ -199,7 +200,12 @@ def create_nn_policy_system(kNetConstructor, params_list):
 
 
 vis_cb_counter = 0
-def add_multiple_trajectories_visualization_callback(prog, h, u, x, T, num_trajectories, num_samples, kNetConstructor, expmt):
+def add_multiple_trajectories_visualization_callback(
+        prog, h, u, x, T, 
+        num_trajectories, num_samples, 
+        kNetConstructor, 
+        expmt,
+        initial_conditions=None):
     num_inputs = len(u[0])
     num_states = len(x[0])
     print(num_inputs, num_states)
@@ -208,7 +214,8 @@ def add_multiple_trajectories_visualization_callback(prog, h, u, x, T, num_traje
         global vis_cb_counter
         vis_cb_counter += 1
         print(vis_cb_counter, end='')
-        if (vis_cb_counter+1) % 50 != 0:
+        # if (vis_cb_counter+1) % 20 != 0:
+        if (vis_cb_counter) % 17 != 1:
             return
         
         # Unpack the serialized variables
@@ -231,20 +238,26 @@ def add_multiple_trajectories_visualization_callback(prog, h, u, x, T, num_traje
             x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
 
             # 1) Visualize the trajectories
-            plt.plot(x_samples[0,:], x_samples[1,:])
-            plt.plot(x_samples[0,0], x_samples[1,0], 'go')
+            plt.plot(x_samples[0,:],  x_samples[1,:])
+            plt.plot(x_samples[0,0],  x_samples[1,0],  'go')
             plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
 
             # 2) Then visualize what the policy would say to do from those initial conditions
+            if ti != 0: #TOOD: remove this!!!
+                continue
             nn_policy = create_nn_policy_system(kNetConstructor, cb_T)
-            initial_conditions = cb_x[ti][:,0]
-            simulator, _, logger = simulate_and_log_policy_system(nn_policy, expmt, initial_conditions=initial_conditions)
+            if initial_conditions is None:
+                inits = cb_x[ti][:,0]           # Use the start of the corresponding trajectory.
+            else:
+                inits = initial_conditions(ti)  # Else do the user's selected inits.
+            simulator, _, logger = simulate_and_log_policy_system(nn_policy, expmt, initial_conditions=inits)
+            # TODO: overwrite h_sol here?
             simulator.StepTo(h_sol*num_samples)
             t_samples = logger.sample_times()
             x_samples = logger.data()
             plt.plot(x_samples[0,:], x_samples[1,:], ':')
-            # plt.plot(x_samples[0,0], x_samples[1,0], 'go')
-            # plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
+            plt.plot(x_samples[0,0], x_samples[1,0], 'go')
+            plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
             
         plt.show()
         

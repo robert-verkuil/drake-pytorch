@@ -99,7 +99,7 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
     return dircol, tree
 
 # Currently only set up to make pendulum examples
-def make_multiple_dircol_trajectories(num_trajectories, num_samples):
+def make_multiple_dircol_trajectories(num_trajectories, num_samples, initial_conditions=None):
     from pydrake.all import (AutoDiffXd, Expression, Variable,
                          MathematicalProgram, SolverType, SolutionResult,
                          DirectCollocationConstraint, AddDirectCollocationConstraint,
@@ -107,6 +107,10 @@ def make_multiple_dircol_trajectories(num_trajectories, num_samples):
                         )
     import pydrake.symbolic as sym
     from pydrake.examples.pendulum import (PendulumPlant)
+
+    # initial_conditions maps (ti) -> [1xnum_states] initial state
+    if initial_conditions is not None:
+        assert callable(initial_conditions)
 
     plant = PendulumPlant()
     context = plant.CreateDefaultContext()
@@ -145,11 +149,17 @@ def make_multiple_dircol_trajectories(num_trajectories, num_samples):
         u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
         x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
 
-        x0 = (.8 + math.pi - .4*ti, 0.0)    
+        # Use Russ's initial conditions, unless I pass in a function myself.
+        if initial_conditions is None:
+            x0 = (.8 + math.pi - .4*ti, 0.0)    
+        else:
+            x0 = initial_conditions(ti)
+            assert len(x0) == 2 #TODO: undo this hardcoding.
         prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
 
         nudge = np.array([.2, .2])
         prog.AddBoundingBoxConstraint(xf-nudge, xf+nudge, x[ti][:,-1])
+        # prog.AddBoundingBoxConstraint(xf, xf, x[ti][:,-1])
 
         for i in range(num_samples-1):
             AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
