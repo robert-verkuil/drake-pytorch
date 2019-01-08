@@ -20,6 +20,63 @@ from networks import *
 
 torch.set_default_tensor_type('torch.DoubleTensor')
 
+
+def add_nn_params(prog,
+                  kNetConstructor, 
+                  h, u, x, # TODO: remove a BUNCH of this!
+                  num_inputs, num_states, 
+                  num_trajectories,
+                  num_samples,
+                  initialize_params=True, 
+                  reg_type="No", 
+                  enable_constraint=True):
+    # Determine num_params and add them to the prog.
+    dummy_net = kNetConstructor()
+    num_params = sum(tensor.nelement() for tensor in kNetConstructor().parameters())
+    T = prog.NewContinuousVariables(num_params, 'T')
+
+    if initialize_params:
+        ### initalize_T_variables(prog, T, kNetConstructor, num_params):
+        # VERY IMPORTANT!!!! - PRELOAD T WITH THE NET'S INITIALIZATION.
+        # DEFAULT ZERO INITIALIZATION WILL GIVE YOU ZERO GRADIENTS!!!!
+        params_loaded = 0
+        initial_guess = [AutoDiffXd]*num_params
+        for param in kNetConstructor().parameters(): # Here's where we make a dummy net. Let's seed this?
+            param_values = param.data.numpy().flatten()
+            for i in range(param.data.nelement()):
+                initial_guess[params_loaded + i] = param_values[i]
+            params_loaded += param.data.nelement()
+        prog.SetInitialGuess(T, np.array(initial_guess))
+
+    # Add No/L1/L2 Regularization to model params T
+    ### add_regularization(prog, T, reg_type):
+    assert reg_type in ("No", "L1", "L2")
+    if reg_type == "No":
+        pass
+    elif reg_type == "L1":
+        def L1Cost(T):
+            return sum([t**2 for t in T])
+        prog.AddCost(L1Cost, T)
+    elif reg_type == "L2":
+        prog.AddQuadraticCost(np.eye(len(T)), [0.]*len(T), T)
+
+
+    if enable_constraint:
+        # Add the neural network constraint to all time steps
+        for ti in range(num_trajectories):
+            for i in range(num_samples):
+                u_ti = u[ti][0,i]
+                x_ti = x[ti][:,i]
+                # Only one output value, so let's have lb and ub of just size one!
+                constraint = make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params)
+                lb         = np.array([-.1])
+                ub         = np.array([.1])
+                var_list   = np.hstack((u_ti, x_ti, T))
+                prog.AddConstraint(constraint, lb, ub, var_list)
+        #         prog.AddCost(lambda x: constraint(x)[0]**2, var_list)
+
+    return T # TODO: remove this
+
 # TODO: use this in place of create_nn_system thing in traj.vis
 def create_nn(kNetConstructor, params_list):
     # Construct a model with params T

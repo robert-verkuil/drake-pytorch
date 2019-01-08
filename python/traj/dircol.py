@@ -98,6 +98,32 @@ def make_real_dircol_mp(expmt="cartpole", seed=1776):
 
     return dircol, tree
 
+n_theta, n_theta_dot = (5, 3)
+theta_bounds     = -math.pi, math.pi
+theta_dot_bounds = -5, 5
+def initial_conditions(ti):
+    # Russ's
+    return (.8 + math.pi - .4*ti, 0.0)
+def initial_conditions2(ti):
+    # Have ti index into a grid over some state space bounds
+    theta_range     = np.linspace(theta_bounds[0], theta_bounds[1], n_theta)
+    theta_dot_range = np.linspace(theta_dot_bounds[0], theta_dot_bounds[1], n_theta_dot)
+    r = int(ti / n_theta)
+    c = ti % n_theta
+    return (theta_range[c], theta_dot_range[r])
+def initial_conditions3(ti):
+    # random state over some state-space bounds
+    rand1, rand2 =  np.random.random(2)
+    theta     =  (theta_bounds[1] - theta_bounds[0]) * rand1 + theta_bounds[0]
+    theta_dot =  (theta_dot_bounds[1] - theta_dot_bounds[0]) * rand2 + theta_dot_bounds[0]
+    return theta, theta_dot
+
+intial_cond_dict = {
+    "1": initial_conditions,
+    "2": initial_conditions2,
+    "3": initial_conditions3,
+}
+
 # Currently only set up to make pendulum examples
 def make_multiple_dircol_trajectories(num_trajectories, num_samples, initial_conditions=None):
     from pydrake.all import (AutoDiffXd, Expression, Variable,
@@ -110,6 +136,7 @@ def make_multiple_dircol_trajectories(num_trajectories, num_samples, initial_con
 
     # initial_conditions maps (ti) -> [1xnum_states] initial state
     if initial_conditions is not None:
+        initial_conditions = intial_cond_dict[initial_conditions]
         assert callable(initial_conditions)
 
     plant = PendulumPlant()
