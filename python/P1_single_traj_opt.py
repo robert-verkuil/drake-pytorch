@@ -63,6 +63,7 @@ def do_single_basic_pend_traj_opt(should_init):
         for constraint in dircol.GetAllConstraints():
             val = dircol.EvalBinding(constraint, decision_vars)
 
+            # TODO: switch to DoCheckSatisfied...
             nudge = 1e-1 # This much constraint violation is not considered bad...
             lb = constraint.evaluator().lower_bound()
             ub = constraint.evaluator().upper_bound()
@@ -75,14 +76,14 @@ def do_single_basic_pend_traj_opt(should_init):
             constraint_cost += np.sum(val)
         print("total cost: {:.2f} | constraint {:.2f}, bad {}, {:.2f}".format(
             sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
-    dircol.AddVisualizationCallback(cb, np.array(dircol.decision_variables()))
+#    dircol.AddVisualizationCallback(cb, np.array(dircol.decision_variables()))
     result = dircol.Solve()
     assert(result == SolutionResult.kSolutionFound)
 
     sol_costs = np.hstack([dircol.EvalBindingAtSolution(cost) for cost in dircol.GetAllCosts()])
     sol_constraints = np.hstack([dircol.EvalBindingAtSolution(constraint) for constraint in dircol.GetAllConstraints()])
-    print("TOTAL cost: {:.2f} | constraint {:.2f}".format(sum(sol_costs), sum(sol_constraints)))
-    print()
+#    print("TOTAL cost: {:.2f} | constraint {:.2f}".format(sum(sol_costs), sum(sol_constraints)))
+#    print()
  
 # x_trajectory = dircol.ReconstructStateTrajectory()
 # x_knots = np.hstack([x_trajectory.value(t) for t in np.linspace(x_trajectory.start_time(),x_trajectory.end_time(),100)])
