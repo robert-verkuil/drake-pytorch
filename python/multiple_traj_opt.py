@@ -182,6 +182,7 @@ class MultipleTrajOpt(object):
             initial_conditions=None):
 
         # Exposing the variables that the callback will need to bind to...
+        # TODO: is this needed?
         kNetConstructor = self.kNetConstructor
         num_inputs = self.num_inputs
         num_states = self.num_states
@@ -200,16 +201,16 @@ class MultipleTrajOpt(object):
             num_u = num_trajectories*num_samples*num_inputs
             num_x = num_trajectories*num_samples*num_states
 
-            cb_h = huxT[:num_trajectories].reshape((num_trajectories, 1))
-            cb_u = huxT[num_h:num_h+num_u].reshape((num_trajectories, num_inputs, num_samples))
-            cb_x = huxT[num_h+num_u:num_h+num_u+num_x].reshape((num_trajectories, num_states, num_samples))
-            cb_T = huxT[num_h+num_u+num_x:]
+            h = huxT[:num_trajectories].reshape((num_trajectories, 1))
+            u = huxT[num_h:num_h+num_u].reshape((num_trajectories, num_inputs, num_samples))
+            x = huxT[num_h+num_u:num_h+num_u+num_x].reshape((num_trajectories, num_states, num_samples))
+            T = huxT[num_h+num_u+num_x:]
 
             # Visualize the trajectories
             for ti in range(num_trajectories):
-                h_sol = cb_h[ti][0]
+                h_sol = h[ti][0]
                 breaks = [h_sol*i for i in range(num_samples)]
-                knots = cb_x[ti]
+                knots = x[ti]
                 x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
                 t_samples = np.linspace(breaks[0], breaks[-1], num_samples*3)
                 x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
@@ -222,9 +223,9 @@ class MultipleTrajOpt(object):
                 # 2) Then visualize what the policy would say to do from those initial conditions
                 if ti != 0: #TOOD: remove this!!!
                     continue
-                nn_policy = create_nn_policy_system(kNetConstructor, cb_T)
+                nn_policy = create_nn_policy_system(kNetConstructor, T)
                 if initial_conditions is None:
-                    inits = cb_x[ti][:,0]           # Use the start of the corresponding trajectory.
+                    inits = x[ti][:,0]           # Use the start of the corresponding trajectory.
                 else:
                     inits = initial_conditions(ti)  # Else do the user's selected inits.
                 simulator, _, logger = simulate_and_log_policy_system(nn_policy, expmt, initial_conditions=inits)
@@ -242,4 +243,85 @@ class MultipleTrajOpt(object):
         flat_u = np.hstack(elem.flatten() for elem in self.u)
         flat_x = np.hstack(elem.flatten() for elem in self.x)
         self.prog.AddVisualizationCallback(cb, np.hstack([flat_h, flat_u, flat_x, self.T]))
+
+    def Solve(self):
+        return self.prog.Solve()
+
+    def print_pi_divergence(self, ti):
+        from nn_system.NNSystem import NNInferenceHelper_double
+        from nn_system.NNSystemHelper import create_nn
+
+        ti = 0
+        nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
+        u_vals = self.prog.GetSolution(self.u[ti])
+        x_vals = self.prog.GetSolution(self.x[ti])
+        print("u_val-Pi(x_val)= diff")
+        for i in range(self.num_samples):
+            u_val = u_vals[0,i]
+            x_val = x_vals[:,i]
+            
+            u_pi = NNInferenceHelper_double(nn, x_val)[0]
+            print( "({: .2f})-({: .2f})= {: .2f}".format(u_val, u_pi, u_val - u_pi) )
+
+    # TODO: add ability to see policy graphs in state and physical space!
+    def render_policy(self, ti):
+        from traj.visualizer import PendulumVisualizer
+        from IPython.display import HTML
+
+        nn_policy = create_nn_policy_system(self.kNetConstructor, self.prog.GetSolution(self.T))
+        initial_conditions = self.prog.GetSolution(self.x[ti])[:,0]
+        simulator, _, logger = simulate_and_log_policy_system(nn_policy, "pendulum", initial_conditions=initial_conditions)
+        h_sol = self.prog.GetSolution(self.h[ti])[0]
+
+        simulator.StepTo(h_sol*self.num_samples)
+
+        # Visualize the result as a video.
+        vis = PendulumVisualizer()
+        ani = vis.animate(logger, repeat=True)
+
+        # Things added to get visualizations in an ipynb
+        plt.close(vis.fig)
+        return ani
+
+    def get_trajectory_data(self, ti):
+        h_sol = self.prog.GetSolution(self.h[ti])[0]
+        breaks = [h_sol*i for i in range(self.num_samples)]
+        knots = self.prog.GetSolution(self.x[ti])
+        x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
+        t_samples = np.linspace(breaks[0], breaks[-1], 45)
+        x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
+        return x_trajectory, t_samples, x_samples
+
+    def plot_all_trajectories(self):
+        plt.title('Pendulum trajectories')
+        plt.xlabel('theta')
+        plt.ylabel('theta_dot')
+        for ti in range(self.num_trajectories):
+            x_trajectory, t_samples, x_samples = self.get_trajectory_data(ti)
+
+            plt.plot(x_samples[0,:], x_samples[1,:])
+            plt.plot(x_samples[0,0], x_samples[1,0],   'go')
+            plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
+
+    def plot_single_trajectory(self, ti):
+        # Visualize with a static arrows plot.
+        _, t_samples, x_samples = self.get_trajectory_data(ti)
+
+        visualize_trajectory(t_samples, x_samples, expmt="pendulum", create_figure=False)
+
+    def render_single_trajectory(self, ti):
+        from traj.visualizer import PendulumVisualizer
+        # Visualize the result as a video.
+        x_trajectory, _, _ = self.get_trajectory_data(ti)
+        
+        vis = PendulumVisualizer()
+        ani = vis.animate(x_trajectory, repeat=True)
+        plt.close(vis.fig)
+        return ani
+
+
+
+
+
+
 
