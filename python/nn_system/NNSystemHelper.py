@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+import time
 
 import torch
 import torch.nn as nn
@@ -31,8 +32,10 @@ def create_nn(kNetConstructor, params_list):
 
     return net
 
-def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
+import copy
+def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, do_asserts=False):
     def constraint(uxT):
+        # start = time.time()
     # ##############################
     # #    JUST FOR DEBUGGING!
     # ##############################
@@ -42,6 +45,16 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
     #     return uxT
     # prog.AddConstraint(constraint, -np.array([.1]*5), np.array([.1]*5), np.hstack((prog.input(0), prog.state(0))))
     # ##############################
+        # Force use of AutoDiff Values, so that EvalBinding works (it normally only uses doubles...)
+        double_ver = False
+        if uxT.dtype != np.object:
+            double_ver = True
+            uxT = copy.deepcopy(uxT)
+            def one_hot(i):
+                ret = np.zeros(len(uxT))
+                ret[i] = 1
+                return ret
+            uxT = np.array([AutoDiffXd(val, one_hot(i)) for i, val in enumerate(uxT)])
 
         u = uxT[:num_inputs]
         x = uxT[num_inputs:num_inputs+num_states]
@@ -50,12 +63,12 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
         # We assume that .derivative() at index i 
         # of uxT is a one hot with only derivatives(i) set. Check this here.
         n_derivatives = len(u[0].derivatives())
-        assert n_derivatives == sum((num_inputs, num_states, num_params))
+        if do_asserts: assert n_derivatives == sum((num_inputs, num_states, num_params))
         for i, elem in enumerate(uxT): # TODO: is uxT iterable without any reshaping?
-            assert n_derivatives == len(elem.derivatives())
+            if do_asserts: assert n_derivatives == len(elem.derivatives())
             one_hot = np.zeros((n_derivatives))
             one_hot[i] = 1
-            np.testing.assert_array_equal(elem.derivatives(), one_hot)
+            if do_asserts: np.testing.assert_array_equal(elem.derivatives(), one_hot)
         
         # Construct a model with params T
         net = kNetConstructor()
@@ -83,15 +96,21 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params):
             if param.grad is None:
                 T_derivatives.append( [0.]*param.data.nelement() )
             else:
-		assert param.data.nelement() == param.grad.nelement()
-		np.testing.assert_array_equal( list(param.data.size()), list(param.grad.size()) )
+                if do_asserts: assert param.data.nelement() == param.grad.nelement()
+                if do_asserts: np.testing.assert_array_equal( list(param.data.size()), list(param.grad.size()) )
                 T_derivatives.append( param.grad.numpy().flatten() ) # Flatten will return a copy.
-        assert np.hstack(T_derivatives).size == num_params
+        if do_asserts: assert np.hstack(T_derivatives).size == num_params
         y_derivatives[num_inputs+num_states:] =  np.hstack(T_derivatives)
         
         y = AutoDiffXd(y_values, y_derivatives)
         
         # constraint is Pi(x) == u
+        # end = time.time()
+        # print("constraint eval: ", end - start)
+        if double_ver:
+            ret = (u-y)[0].value()
+            #print("ret: ", ret)
+            return [ret]
         return u - y
     return constraint
 

@@ -1,0 +1,1934 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="406" onload="init(evt)" viewBox="0 0 1200 406" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs >
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	.func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	var details, searchbtn, matchedtxt, svg;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	// mouse-over for info
+	function s(node) {		// show
+		info = g_to_text(node);
+		details.nodeValue = "Function: " + info;
+	}
+	function c() {			// clear
+		details.nodeValue = ' ';
+	}
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	})
+
+	// functions
+	function find_child(parent, name, attr) {
+		var children = parent.childNodes;
+		for (var i=0; i<children.length;i++) {
+			if (children[i].tagName == name)
+				return (attr != undefined) ? children[i].attributes[attr].value : children[i];
+		}
+		return;
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_"+attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_"+attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_"+attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes["width"].value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2*12*0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x=txt.length-2; x>0; x--) {
+			if (t.getSubStringLength(0, x+2) <= w) {
+				t.textContent = txt.substring(0,x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+				if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_child(c[i], x-10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = 10;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr["width"].value);
+		var xmin = parseFloat(attr["x"].value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr["y"].value);
+		var ratio = (svg.width.baseVal.value - 2*10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "1.0";
+
+		var el = document.getElementsByTagName("g");
+		for(var i=0;i<el.length;i++){
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a["x"].value);
+			var ew = parseFloat(a["width"].value);
+			// Is it an ancestor
+			if (0 == 0) {
+				var upstack = parseFloat(a["y"].value) > ymin;
+			} else {
+				var upstack = parseFloat(a["y"].value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.style["opacity"] = "0.5";
+					zoom_parent(e);
+					e.onclick = function(e){unzoom(); zoom(this);};
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.style["display"] = "none";
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.style["display"] = "none";
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					e.onclick = function(e){zoom(this);};
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "0.0";
+
+		var el = document.getElementsByTagName("g");
+		for(i=0;i<el.length;i++) {
+			el[i].style["display"] = "block";
+			el[i].style["opacity"] = "1";
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.getElementsByTagName("rect");
+		for (var i=0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.style["opacity"] = "0.1";
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.style["opacity"] = "0.0";
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementsByTagName("g");
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			if (e.attributes["class"].value != "func_g")
+				continue;
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (rect == null) {
+				// the rect might be wrapped in an anchor
+				// if nameattr href is being used
+				if (rect = find_child(e, "a")) {
+				    rect = find_child(r, "rect");
+				}
+			}
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes["width"].value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes["x"].value);
+				orig_save(rect, "fill");
+				rect.attributes["fill"].value =
+				    "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.style["opacity"] = "1.0";
+		searchbtn.firstChild.nodeValue = "Reset Search"
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.style["opacity"] = "1.0";
+		pct = 100 * count / maxwidth;
+		if (pct == 100)
+			pct = "100"
+		else
+			pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+	function searchover(e) {
+		searchbtn.style["opacity"] = "1.0";
+	}
+	function searchout(e) {
+		if (searching) {
+			searchbtn.style["opacity"] = "1.0";
+		} else {
+			searchbtn.style["opacity"] = "0.1";
+		}
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="406.0" fill="url(#background)"  />
+<text text-anchor="middle" x="600.00" y="24" font-size="17" font-family="Verdana" fill="rgb(0,0,0)"  >Flame Graph</text>
+<text text-anchor="" x="10.00" y="389" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="details" > </text>
+<text text-anchor="" x="10.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="unzoom" onclick="unzoom()" style="opacity:0.0;cursor:pointer" >Reset Zoom</text>
+<text text-anchor="" x="1090.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="search" onmouseover="searchover()" onmouseout="searchout()" onclick="search_prompt()" style="opacity:0.1;cursor:pointer" >Search</text>
+<text text-anchor="" x="1090.00" y="389" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="matched" > </text>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/uuid.py:&lt;module&gt;:455 (1 samples, 0.19%)</title><rect x="1181.2" y="229" width="2.2" height="15.0" fill="rgb(230,77,4)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/abc.py:__subclasscheck__:151 (1 samples, 0.19%)</title><rect x="931.2" y="229" width="2.2" height="15.0" fill="rgb(238,189,23)" rx="2" ry="2" />
+<text text-anchor="" x="934.19" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:90 (1 samples, 0.19%)</title><rect x="1025.5" y="325" width="2.2" height="15.0" fill="rgb(227,207,14)" rx="2" ry="2" />
+<text text-anchor="" x="1028.50" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:48 (4 samples, 0.74%)</title><rect x="926.8" y="277" width="8.8" height="15.0" fill="rgb(245,102,25)" rx="2" ry="2" />
+<text text-anchor="" x="929.80" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:777 (4 samples, 0.74%)</title><rect x="852.2" y="293" width="8.8" height="15.0" fill="rgb(210,151,49)" rx="2" ry="2" />
+<text text-anchor="" x="855.23" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/colors.py:is_color_like:116 (1 samples, 0.19%)</title><rect x="1102.3" y="245" width="2.2" height="15.0" fill="rgb(236,94,53)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/meshcat/__init__.py:&lt;module&gt;:8 (1 samples, 0.19%)</title><rect x="1183.4" y="277" width="2.2" height="15.0" fill="rgb(232,57,41)" rx="2" ry="2" />
+<text text-anchor="" x="1186.42" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:775 (3 samples, 0.56%)</title><rect x="819.3" y="293" width="6.6" height="15.0" fill="rgb(231,11,43)" rx="2" ry="2" />
+<text text-anchor="" x="822.33" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/networks.py:__init__:26 (8 samples, 1.49%)</title><rect x="926.8" y="293" width="17.5" height="15.0" fill="rgb(217,227,28)" rx="2" ry="2" />
+<text text-anchor="" x="929.80" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/_thnn/utils.py:parse_header:112 (1 samples, 0.19%)</title><rect x="1040.9" y="149" width="2.1" height="15.0" fill="rgb(217,72,18)" rx="2" ry="2" />
+<text text-anchor="" x="1043.86" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:all:2089 (1 samples, 0.19%)</title><rect x="1005.8" y="261" width="2.2" height="15.0" fill="rgb(232,89,18)" rx="2" ry="2" />
+<text text-anchor="" x="1008.76" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:750 (5 samples, 0.93%)</title><rect x="999.2" y="293" width="10.9" height="15.0" fill="rgb(244,9,54)" rx="2" ry="2" />
+<text text-anchor="" x="1002.18" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:&lt;module&gt;:121 (1 samples, 0.19%)</title><rect x="1104.5" y="325" width="2.2" height="15.0" fill="rgb(208,181,14)" rx="2" ry="2" />
+<text text-anchor="" x="1107.46" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:714 (1 samples, 0.19%)</title><rect x="1010.1" y="277" width="2.2" height="15.0" fill="rgb(245,31,35)" rx="2" ry="2" />
+<text text-anchor="" x="1013.15" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:78 (3 samples, 0.56%)</title><rect x="970.7" y="325" width="6.5" height="15.0" fill="rgb(221,1,50)" rx="2" ry="2" />
+<text text-anchor="" x="973.67" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:116 (389 samples, 72.30%)</title><rect x="183.3" y="341" width="853.2" height="15.0" fill="rgb(250,226,47)" rx="2" ry="2" />
+<text text-anchor="" x="186.27" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >perf.py:&lt;module&gt;:116</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:_calculate_correct_fan:257 (1 samples, 0.19%)</title><rect x="918.0" y="229" width="2.2" height="15.0" fill="rgb(231,30,3)" rx="2" ry="2" />
+<text text-anchor="" x="921.03" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/__init__.py:&lt;module&gt;:3 (1 samples, 0.19%)</title><rect x="1045.2" y="277" width="2.2" height="15.0" fill="rgb(235,200,14)" rx="2" ry="2" />
+<text text-anchor="" x="1048.24" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/style/core.py:read_style_directory:197 (1 samples, 0.19%)</title><rect x="1135.2" y="261" width="2.2" height="15.0" fill="rgb(252,28,24)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:51 (1 samples, 0.19%)</title><rect x="911.4" y="277" width="2.2" height="15.0" fill="rgb(222,100,29)" rx="2" ry="2" />
+<text text-anchor="" x="914.45" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:53 (1 samples, 0.19%)</title><rect x="913.6" y="277" width="2.2" height="15.0" fill="rgb(223,97,26)" rx="2" ry="2" />
+<text text-anchor="" x="916.64" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/_methods.py:_all:46 (11 samples, 2.04%)</title><rect x="828.1" y="277" width="24.1" height="15.0" fill="rgb(241,18,29)" rx="2" ry="2" />
+<text text-anchor="" x="831.10" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:66 (1 samples, 0.19%)</title><rect x="885.1" y="277" width="2.2" height="15.0" fill="rgb(230,183,20)" rx="2" ry="2" />
+<text text-anchor="" x="888.13" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pathlib2/__init__.py:&lt;module&gt;:46 (1 samples, 0.19%)</title><rect x="1139.6" y="277" width="2.1" height="15.0" fill="rgb(209,56,8)" rx="2" ry="2" />
+<text text-anchor="" x="1142.55" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:82 (1 samples, 0.19%)</title><rect x="977.2" y="325" width="2.2" height="15.0" fill="rgb(233,27,3)" rx="2" ry="2" />
+<text text-anchor="" x="980.25" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/functional.py:&lt;module&gt;:10 (1 samples, 0.19%)</title><rect x="1043.0" y="229" width="2.2" height="15.0" fill="rgb(242,215,28)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/style/__init__.py:&lt;module&gt;:3 (1 samples, 0.19%)</title><rect x="1135.2" y="309" width="2.2" height="15.0" fill="rgb(216,44,37)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getsourcefile:445 (1 samples, 0.19%)</title><rect x="1086.9" y="149" width="2.2" height="15.0" fill="rgb(240,116,37)" rx="2" ry="2" />
+<text text-anchor="" x="1089.91" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:28 (1 samples, 0.19%)</title><rect x="1163.7" y="325" width="2.2" height="15.0" fill="rgb(205,99,7)" rx="2" ry="2" />
+<text text-anchor="" x="1166.68" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/PIL/Image.py:&lt;module&gt;:146 (1 samples, 0.19%)</title><rect x="1139.6" y="293" width="2.1" height="15.0" fill="rgb(249,5,52)" rx="2" ry="2" />
+<text text-anchor="" x="1142.55" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/sre_compile.py:compile:572 (1 samples, 0.19%)</title><rect x="1117.6" y="213" width="2.2" height="15.0" fill="rgb(223,68,18)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/__init__.py:&lt;module&gt;:293 (1 samples, 0.19%)</title><rect x="1047.4" y="309" width="2.2" height="15.0" fill="rgb(209,201,20)" rx="2" ry="2" />
+<text text-anchor="" x="1050.43" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/re.py:sub:155 (1 samples, 0.19%)</title><rect x="1143.9" y="197" width="2.2" height="15.0" fill="rgb(253,61,10)" rx="2" ry="2" />
+<text text-anchor="" x="1146.94" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:__init__:894 (1 samples, 0.19%)</title><rect x="1102.3" y="309" width="2.2" height="15.0" fill="rgb(218,166,43)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:&lt;module&gt;:5534 (1 samples, 0.19%)</title><rect x="1117.6" y="277" width="2.2" height="15.0" fill="rgb(242,94,0)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/colors.py:_is_nth_color:109 (1 samples, 0.19%)</title><rect x="1102.3" y="229" width="2.2" height="15.0" fill="rgb(237,217,35)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/linecache.py:checkcache:54 (1 samples, 0.19%)</title><rect x="1036.5" y="229" width="2.2" height="15.0" fill="rgb(237,92,32)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/__init__.py:&lt;module&gt;:250 (1 samples, 0.19%)</title><rect x="1036.5" y="309" width="2.2" height="15.0" fill="rgb(206,82,18)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:83 (14 samples, 2.60%)</title><rect x="709.7" y="245" width="30.7" height="15.0" fill="rgb(227,120,47)" rx="2" ry="2" />
+<text text-anchor="" x="712.67" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:761 (26 samples, 4.83%)</title><rect x="740.4" y="293" width="57.0" height="15.0" fill="rgb(220,148,26)" rx="2" ry="2" />
+<text text-anchor="" x="743.37" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/_functions/thnn/__init__.py:&lt;module&gt;:3 (2 samples, 0.37%)</title><rect x="1038.7" y="197" width="4.3" height="15.0" fill="rgb(223,205,9)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:all:2089 (24 samples, 4.46%)</title><rect x="560.5" y="261" width="52.7" height="15.0" fill="rgb(229,11,5)" rx="2" ry="2" />
+<text text-anchor="" x="563.52" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/ctypes/util.py:_findSoname_ldconfig:278 (1 samples, 0.19%)</title><rect x="1181.2" y="197" width="2.2" height="15.0" fill="rgb(222,211,3)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:550 (1 samples, 0.19%)</title><rect x="891.7" y="261" width="2.2" height="15.0" fill="rgb(211,42,27)" rx="2" ry="2" />
+<text text-anchor="" x="894.71" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:&lt;module&gt;:133 (1 samples, 0.19%)</title><rect x="1122.0" y="325" width="2.2" height="15.0" fill="rgb(225,80,10)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:7 (12 samples, 2.23%)</title><rect x="1163.7" y="341" width="26.3" height="15.0" fill="rgb(243,179,4)" rx="2" ry="2" />
+<text text-anchor="" x="1166.68" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >p..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/traceback.py:format_stack:279 (1 samples, 0.19%)</title><rect x="1036.5" y="261" width="2.2" height="15.0" fill="rgb(243,42,5)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/traj/vis.py:&lt;module&gt;:31 (7 samples, 1.30%)</title><rect x="1084.7" y="325" width="15.4" height="15.0" fill="rgb(241,86,32)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/cuda/__init__.py:&lt;module&gt;:127 (1 samples, 0.19%)</title><rect x="1036.5" y="293" width="2.2" height="15.0" fill="rgb(238,49,20)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:716 (32 samples, 5.95%)</title><rect x="670.2" y="277" width="70.2" height="15.0" fill="rgb(240,2,50)" rx="2" ry="2" />
+<text text-anchor="" x="673.19" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/r..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:769 (6 samples, 1.12%)</title><rect x="801.8" y="293" width="13.1" height="15.0" fill="rgb(242,168,41)" rx="2" ry="2" />
+<text text-anchor="" x="804.78" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:58 (277 samples, 51.49%)</title><rect x="275.4" y="325" width="607.5" height="15.0" fill="rgb(208,138,38)" rx="2" ry="2" />
+<text text-anchor="" x="278.39" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constra..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:_subs_tree:677 (1 samples, 0.19%)</title><rect x="1043.0" y="101" width="2.2" height="15.0" fill="rgb(243,222,42)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:70 (3 samples, 0.56%)</title><rect x="569.3" y="245" width="6.6" height="15.0" fill="rgb(229,169,50)" rx="2" ry="2" />
+<text text-anchor="" x="572.29" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/autograd/grad_mode.py:__exit__:36 (1 samples, 0.19%)</title><rect x="924.6" y="229" width="2.2" height="15.0" fill="rgb(230,203,8)" rx="2" ry="2" />
+<text text-anchor="" x="927.61" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/re.py:_compile:249 (1 samples, 0.19%)</title><rect x="1117.6" y="229" width="2.2" height="15.0" fill="rgb(215,89,32)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/artist.py:__init__:1089 (1 samples, 0.19%)</title><rect x="1146.1" y="245" width="2.2" height="15.0" fill="rgb(246,198,34)" rx="2" ry="2" />
+<text text-anchor="" x="1149.13" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/backends/thnn.py:_initialize_backend:22 (2 samples, 0.37%)</title><rect x="1038.7" y="213" width="4.3" height="15.0" fill="rgb(222,31,42)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/_thnn/__init__.py:&lt;module&gt;:52 (1 samples, 0.19%)</title><rect x="1040.9" y="165" width="2.1" height="15.0" fill="rgb(241,130,10)" rx="2" ry="2" />
+<text text-anchor="" x="1043.86" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:reset_parameters:61 (1 samples, 0.19%)</title><rect x="942.2" y="261" width="2.1" height="15.0" fill="rgb(229,116,11)" rx="2" ry="2" />
+<text text-anchor="" x="945.16" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:24 (7 samples, 1.30%)</title><rect x="1084.7" y="341" width="15.4" height="15.0" fill="rgb(241,222,34)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:68 (1 samples, 0.19%)</title><rect x="887.3" y="277" width="2.2" height="15.0" fill="rgb(242,79,21)" rx="2" ry="2" />
+<text text-anchor="" x="890.32" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:normpath:348 (1 samples, 0.19%)</title><rect x="1097.9" y="133" width="2.2" height="15.0" fill="rgb(234,216,7)" rx="2" ry="2" />
+<text text-anchor="" x="1100.88" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/networks.py:__init__:23 (6 samples, 1.12%)</title><rect x="882.9" y="293" width="13.2" height="15.0" fill="rgb(245,9,37)" rx="2" ry="2" />
+<text text-anchor="" x="885.94" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:544 (1 samples, 0.19%)</title><rect x="882.9" y="261" width="2.2" height="15.0" fill="rgb(232,89,47)" rx="2" ry="2" />
+<text text-anchor="" x="885.94" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:&lt;module&gt;:1854 (1 samples, 0.19%)</title><rect x="1043.0" y="181" width="2.2" height="15.0" fill="rgb(206,194,23)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/colorbar.py:&lt;module&gt;:36 (2 samples, 0.37%)</title><rect x="1130.8" y="309" width="4.4" height="15.0" fill="rgb(250,106,27)" rx="2" ry="2" />
+<text text-anchor="" x="1133.78" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/re.py:_compile:235 (1 samples, 0.19%)</title><rect x="1102.3" y="197" width="2.2" height="15.0" fill="rgb(224,134,40)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:689 (12 samples, 2.23%)</title><rect x="303.9" y="293" width="26.3" height="15.0" fill="rgb(210,94,2)" rx="2" ry="2" />
+<text text-anchor="" x="306.90" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/dates.py:&lt;module&gt;:152 (1 samples, 0.19%)</title><rect x="1141.7" y="245" width="2.2" height="15.0" fill="rgb(216,47,26)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/distributions/__init__.py:&lt;module&gt;:92 (1 samples, 0.19%)</title><rect x="1047.4" y="293" width="2.2" height="15.0" fill="rgb(253,99,25)" rx="2" ry="2" />
+<text text-anchor="" x="1050.43" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/mlab.py:&lt;module&gt;:3979 (1 samples, 0.19%)</title><rect x="1143.9" y="245" width="2.2" height="15.0" fill="rgb(245,208,30)" rx="2" ry="2" />
+<text text-anchor="" x="1146.94" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:_calculate_fan_in_and_fan_out:184 (1 samples, 0.19%)</title><rect x="918.0" y="213" width="2.2" height="15.0" fill="rgb(251,47,44)" rx="2" ry="2" />
+<text text-anchor="" x="921.03" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/pyplot.py:&lt;module&gt;:115 (1 samples, 0.19%)</title><rect x="1124.2" y="325" width="2.2" height="15.0" fill="rgb(205,187,31)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:_joinrealpath:399 (2 samples, 0.37%)</title><rect x="1093.5" y="149" width="4.4" height="15.0" fill="rgb(225,173,52)" rx="2" ry="2" />
+<text text-anchor="" x="1096.49" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/site.py:main:683 (1 samples, 0.19%)</title><rect x="181.1" y="325" width="2.2" height="15.0" fill="rgb(248,95,28)" rx="2" ry="2" />
+<text text-anchor="" x="184.08" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:64 (6 samples, 1.12%)</title><rect x="948.7" y="325" width="13.2" height="15.0" fill="rgb(246,191,41)" rx="2" ry="2" />
+<text text-anchor="" x="951.74" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__call__:496 (1 samples, 0.19%)</title><rect x="964.1" y="293" width="2.2" height="15.0" fill="rgb(223,80,53)" rx="2" ry="2" />
+<text text-anchor="" x="967.09" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/opt/underactuated/src/underactuated/__init__.py:&lt;module&gt;:2 (4 samples, 0.74%)</title><rect x="1075.9" y="293" width="8.8" height="15.0" fill="rgb(218,29,4)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:544 (1 samples, 0.19%)</title><rect x="907.1" y="261" width="2.2" height="15.0" fill="rgb(212,191,6)" rx="2" ry="2" />
+<text text-anchor="" x="910.06" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/solvers/all.py:&lt;module&gt;:10 (1 samples, 0.19%)</title><rect x="1176.8" y="309" width="2.2" height="15.0" fill="rgb(207,169,28)" rx="2" ry="2" />
+<text text-anchor="" x="1179.84" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/lib/npyio.py:&lt;module&gt;:14 (1 samples, 0.19%)</title><rect x="1106.7" y="245" width="2.1" height="15.0" fill="rgb(221,10,1)" rx="2" ry="2" />
+<text text-anchor="" x="1109.65" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getmodule:497 (2 samples, 0.37%)</title><rect x="1086.9" y="181" width="4.4" height="15.0" fill="rgb(241,31,26)" rx="2" ry="2" />
+<text text-anchor="" x="1089.91" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/backends/_backend_tk.py:FigureCanvasTk:299 (1 samples, 0.19%)</title><rect x="1124.2" y="261" width="2.2" height="15.0" fill="rgb(239,143,10)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/opt/underactuated/src/underactuated/planar_rigid_body_visualizer.py:&lt;module&gt;:12 (3 samples, 0.56%)</title><rect x="1075.9" y="277" width="6.6" height="15.0" fill="rgb(231,178,19)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:29 (1 samples, 0.19%)</title><rect x="1165.9" y="325" width="2.2" height="15.0" fill="rgb(253,153,31)" rx="2" ry="2" />
+<text text-anchor="" x="1168.87" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:693 (3 samples, 0.56%)</title><rect x="354.3" y="293" width="6.6" height="15.0" fill="rgb(250,207,47)" rx="2" ry="2" />
+<text text-anchor="" x="357.35" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:__new__:1094 (1 samples, 0.19%)</title><rect x="1043.0" y="133" width="2.2" height="15.0" fill="rgb(238,87,36)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/traj/__init__.py:&lt;module&gt;:1 (4 samples, 0.74%)</title><rect x="1075.9" y="325" width="8.8" height="15.0" fill="rgb(225,196,3)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:&lt;module&gt;:1184 (1 samples, 0.19%)</title><rect x="1102.3" y="325" width="2.2" height="15.0" fill="rgb(229,81,44)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:83 (1 samples, 0.19%)</title><rect x="1005.8" y="245" width="2.2" height="15.0" fill="rgb(233,110,7)" rx="2" ry="2" />
+<text text-anchor="" x="1008.76" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/__init__.py:&lt;module&gt;:1 (2 samples, 0.37%)</title><rect x="1038.7" y="261" width="4.3" height="15.0" fill="rgb(208,196,29)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/axes/_axes.py:&lt;module&gt;:24 (1 samples, 0.19%)</title><rect x="1141.7" y="261" width="2.2" height="15.0" fill="rgb(253,183,15)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:693 (1 samples, 0.19%)</title><rect x="990.4" y="293" width="2.2" height="15.0" fill="rgb(218,33,0)" rx="2" ry="2" />
+<text text-anchor="" x="993.41" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/rcsetup.py:validate_color:387 (1 samples, 0.19%)</title><rect x="1102.3" y="261" width="2.2" height="15.0" fill="rgb(230,16,48)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:782 (1 samples, 0.19%)</title><rect x="1018.9" y="293" width="2.2" height="15.0" fill="rgb(220,129,48)" rx="2" ry="2" />
+<text text-anchor="" x="1021.92" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:745 (54 samples, 10.04%)</title><rect x="380.7" y="293" width="118.4" height="15.0" fill="rgb(236,110,35)" rx="2" ry="2" />
+<text text-anchor="" x="383.67" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rverkuil..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/networks.py:__init__:25 (13 samples, 2.42%)</title><rect x="898.3" y="293" width="28.5" height="15.0" fill="rgb(251,137,40)" rx="2" ry="2" />
+<text text-anchor="" x="901.29" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/__init__.py:&lt;module&gt;:32 (7 samples, 1.30%)</title><rect x="1148.3" y="325" width="15.4" height="15.0" fill="rgb(234,35,45)" rx="2" ry="2" />
+<text text-anchor="" x="1151.33" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:_subs_tree:1178 (1 samples, 0.19%)</title><rect x="1043.0" y="117" width="2.2" height="15.0" fill="rgb(225,88,8)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:45 (5 samples, 0.93%)</title><rect x="1179.0" y="325" width="11.0" height="15.0" fill="rgb(235,18,19)" rx="2" ry="2" />
+<text text-anchor="" x="1182.03" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:items:127 (1 samples, 0.19%)</title><rect x="977.2" y="245" width="2.2" height="15.0" fill="rgb(222,102,24)" rx="2" ry="2" />
+<text text-anchor="" x="980.25" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:67 (1 samples, 0.19%)</title><rect x="444.3" y="245" width="2.2" height="15.0" fill="rgb(212,13,40)" rx="2" ry="2" />
+<text text-anchor="" x="447.28" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:92 (1 samples, 0.19%)</title><rect x="1027.7" y="325" width="2.2" height="15.0" fill="rgb(239,169,1)" rx="2" ry="2" />
+<text text-anchor="" x="1030.70" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:558 (1 samples, 0.19%)</title><rect x="909.3" y="261" width="2.1" height="15.0" fill="rgb(219,12,4)" rx="2" ry="2" />
+<text text-anchor="" x="912.26" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:named_modules:969 (1 samples, 0.19%)</title><rect x="977.2" y="261" width="2.2" height="15.0" fill="rgb(228,212,5)" rx="2" ry="2" />
+<text text-anchor="" x="980.25" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/patches.py:BoxStyle:2153 (1 samples, 0.19%)</title><rect x="1130.8" y="245" width="2.2" height="15.0" fill="rgb(228,133,46)" rx="2" ry="2" />
+<text text-anchor="" x="1133.78" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:63 (1 samples, 0.19%)</title><rect x="882.9" y="277" width="2.2" height="15.0" fill="rgb(227,115,4)" rx="2" ry="2" />
+<text text-anchor="" x="885.94" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:abspath:366 (1 samples, 0.19%)</title><rect x="1097.9" y="149" width="2.2" height="15.0" fill="rgb(217,173,37)" rx="2" ry="2" />
+<text text-anchor="" x="1100.88" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/figure.py:&lt;module&gt;:40 (3 samples, 0.56%)</title><rect x="1141.7" y="309" width="6.6" height="15.0" fill="rgb(246,132,49)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/random/__init__.py:&lt;module&gt;:99 (1 samples, 0.19%)</title><rect x="1113.2" y="277" width="2.2" height="15.0" fill="rgb(250,119,6)" rx="2" ry="2" />
+<text text-anchor="" x="1116.23" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:83 (17 samples, 3.16%)</title><rect x="455.2" y="245" width="37.3" height="15.0" fill="rgb(240,130,54)" rx="2" ry="2" />
+<text text-anchor="" x="458.24" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/ho..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:3 (22 samples, 4.09%)</title><rect x="1100.1" y="341" width="48.2" height="15.0" fill="rgb(219,168,46)" rx="2" ry="2" />
+<text text-anchor="" x="1103.07" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >perf..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:&lt;module&gt;:5 (1 samples, 0.19%)</title><rect x="1043.0" y="245" width="2.2" height="15.0" fill="rgb(228,226,9)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:744 (1 samples, 0.19%)</title><rect x="992.6" y="293" width="2.2" height="15.0" fill="rgb(254,149,36)" rx="2" ry="2" />
+<text text-anchor="" x="995.60" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/add_newdocs.py:&lt;module&gt;:13 (3 samples, 0.56%)</title><rect x="1106.7" y="277" width="6.5" height="15.0" fill="rgb(218,16,51)" rx="2" ry="2" />
+<text text-anchor="" x="1109.65" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:15 (18 samples, 3.35%)</title><rect x="1036.5" y="341" width="39.4" height="15.0" fill="rgb(237,135,14)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >per..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/distributions/kl.py:&lt;module&gt;:29 (1 samples, 0.19%)</title><rect x="1047.4" y="277" width="2.2" height="15.0" fill="rgb(221,187,36)" rx="2" ry="2" />
+<text text-anchor="" x="1050.43" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/all.py:&lt;module&gt;:10 (1 samples, 0.19%)</title><rect x="1179.0" y="309" width="2.2" height="15.0" fill="rgb(252,222,30)" rx="2" ry="2" />
+<text text-anchor="" x="1182.03" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:690 (1 samples, 0.19%)</title><rect x="988.2" y="293" width="2.2" height="15.0" fill="rgb(230,152,22)" rx="2" ry="2" />
+<text text-anchor="" x="991.22" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/fontconfig_pattern.py:&lt;module&gt;:22 (2 samples, 0.37%)</title><rect x="1117.6" y="293" width="4.4" height="15.0" fill="rgb(237,114,23)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:66 (1 samples, 0.19%)</title><rect x="442.1" y="245" width="2.2" height="15.0" fill="rgb(247,123,29)" rx="2" ry="2" />
+<text text-anchor="" x="445.08" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:724 (1 samples, 0.19%)</title><rect x="1012.3" y="277" width="2.2" height="15.0" fill="rgb(252,144,43)" rx="2" ry="2" />
+<text text-anchor="" x="1015.34" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:68 (1 samples, 0.19%)</title><rect x="933.4" y="261" width="2.2" height="15.0" fill="rgb(239,180,52)" rx="2" ry="2" />
+<text text-anchor="" x="936.38" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/maliput/all.py:&lt;module&gt;:1 (1 samples, 0.19%)</title><rect x="1170.3" y="309" width="2.2" height="15.0" fill="rgb(241,11,52)" rx="2" ry="2" />
+<text text-anchor="" x="1173.26" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/multibody/all.py:&lt;module&gt;:14 (1 samples, 0.19%)</title><rect x="1172.5" y="309" width="2.1" height="15.0" fill="rgb(211,103,16)" rx="2" ry="2" />
+<text text-anchor="" x="1175.45" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:&lt;module&gt;:126 (4 samples, 0.74%)</title><rect x="1106.7" y="325" width="8.7" height="15.0" fill="rgb(239,152,49)" rx="2" ry="2" />
+<text text-anchor="" x="1109.65" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/lib/type_check.py:&lt;module&gt;:11 (2 samples, 0.37%)</title><rect x="1108.8" y="245" width="4.4" height="15.0" fill="rgb(206,51,25)" rx="2" ry="2" />
+<text text-anchor="" x="1111.85" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_equal:865 (273 samples, 50.74%)</title><rect x="284.2" y="309" width="598.7" height="15.0" fill="rgb(254,200,32)" rx="2" ry="2" />
+<text text-anchor="" x="287.16" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/tes..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/lib/__init__.py:&lt;module&gt;:24 (1 samples, 0.19%)</title><rect x="1106.7" y="261" width="2.1" height="15.0" fill="rgb(208,97,54)" rx="2" ry="2" />
+<text text-anchor="" x="1109.65" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:&lt;lambda&gt;:749 (3 samples, 0.56%)</title><rect x="527.6" y="261" width="6.6" height="15.0" fill="rgb(205,225,12)" rx="2" ry="2" />
+<text text-anchor="" x="530.62" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/util/eigen_geometry.py:&lt;module&gt;:1 (1 samples, 0.19%)</title><rect x="1163.7" y="309" width="2.2" height="15.0" fill="rgb(243,99,18)" rx="2" ry="2" />
+<text text-anchor="" x="1166.68" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/ctypes/util.py:_findSoname_ldconfig:278 (1 samples, 0.19%)</title><rect x="1139.6" y="229" width="2.1" height="15.0" fill="rgb(238,169,20)" rx="2" ry="2" />
+<text text-anchor="" x="1142.55" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:44 (1 samples, 0.19%)</title><rect x="1176.8" y="325" width="2.2" height="15.0" fill="rgb(208,102,44)" rx="2" ry="2" />
+<text text-anchor="" x="1179.84" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:763 (2 samples, 0.37%)</title><rect x="797.4" y="293" width="4.4" height="15.0" fill="rgb(212,76,34)" rx="2" ry="2" />
+<text text-anchor="" x="800.40" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/__init__.py:&lt;module&gt;:142 (3 samples, 0.56%)</title><rect x="1106.7" y="293" width="6.5" height="15.0" fill="rgb(239,74,45)" rx="2" ry="2" />
+<text text-anchor="" x="1109.65" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:729 (1 samples, 0.19%)</title><rect x="613.2" y="277" width="2.2" height="15.0" fill="rgb(241,174,22)" rx="2" ry="2" />
+<text text-anchor="" x="616.16" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:_named_members:775 (1 samples, 0.19%)</title><rect x="946.5" y="277" width="2.2" height="15.0" fill="rgb(242,151,48)" rx="2" ry="2" />
+<text text-anchor="" x="949.54" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:reset_parameters:59 (3 samples, 0.56%)</title><rect x="935.6" y="261" width="6.6" height="15.0" fill="rgb(232,102,29)" rx="2" ry="2" />
+<text text-anchor="" x="938.58" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:65 (1 samples, 0.19%)</title><rect x="961.9" y="325" width="2.2" height="15.0" fill="rgb(211,106,47)" rx="2" ry="2" />
+<text text-anchor="" x="964.90" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/colors.py:__init__:830 (1 samples, 0.19%)</title><rect x="1128.6" y="245" width="2.2" height="15.0" fill="rgb(232,223,4)" rx="2" ry="2" />
+<text text-anchor="" x="1131.59" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:66 (1 samples, 0.19%)</title><rect x="931.2" y="261" width="2.2" height="15.0" fill="rgb(236,190,28)" rx="2" ry="2" />
+<text text-anchor="" x="934.19" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:join:70 (1 samples, 0.19%)</title><rect x="1095.7" y="133" width="2.2" height="15.0" fill="rgb(218,198,46)" rx="2" ry="2" />
+<text text-anchor="" x="1098.69" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:771 (2 samples, 0.37%)</title><rect x="814.9" y="293" width="4.4" height="15.0" fill="rgb(235,19,39)" rx="2" ry="2" />
+<text text-anchor="" x="817.94" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/sre_parse.py:parse:716 (1 samples, 0.19%)</title><rect x="1117.6" y="197" width="2.2" height="15.0" fill="rgb(220,209,35)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/style/core.py:&lt;module&gt;:224 (1 samples, 0.19%)</title><rect x="1135.2" y="293" width="2.2" height="15.0" fill="rgb(220,52,2)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/artist.py:get_aliases:1104 (1 samples, 0.19%)</title><rect x="1146.1" y="229" width="2.2" height="15.0" fill="rgb(227,131,7)" rx="2" ry="2" />
+<text text-anchor="" x="1149.13" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/meshcat_visualizer.py:&lt;module&gt;:11 (2 samples, 0.37%)</title><rect x="1181.2" y="293" width="4.4" height="15.0" fill="rgb(238,117,54)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/__init__.py:&lt;module&gt;:55 (1 samples, 0.19%)</title><rect x="1111.0" y="229" width="2.2" height="15.0" fill="rgb(244,185,19)" rx="2" ry="2" />
+<text text-anchor="" x="1114.04" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:20 (4 samples, 0.74%)</title><rect x="1075.9" y="341" width="8.8" height="15.0" fill="rgb(205,42,42)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:63 (2 samples, 0.37%)</title><rect x="944.3" y="325" width="4.4" height="15.0" fill="rgb(221,9,52)" rx="2" ry="2" />
+<text text-anchor="" x="947.35" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getabsfile:466 (1 samples, 0.19%)</title><rect x="1086.9" y="165" width="2.2" height="15.0" fill="rgb(227,160,4)" rx="2" ry="2" />
+<text text-anchor="" x="1089.91" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/pyplot.py:&lt;module&gt;:31 (4 samples, 0.74%)</title><rect x="1126.4" y="325" width="8.8" height="15.0" fill="rgb(205,159,24)" rx="2" ry="2" />
+<text text-anchor="" x="1129.39" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/hashlib.py:&lt;module&gt;:134 (1 samples, 0.19%)</title><rect x="1104.5" y="277" width="2.2" height="15.0" fill="rgb(221,211,4)" rx="2" ry="2" />
+<text text-anchor="" x="1107.46" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:89 (2 samples, 0.37%)</title><rect x="1021.1" y="325" width="4.4" height="15.0" fill="rgb(227,120,31)" rx="2" ry="2" />
+<text text-anchor="" x="1024.12" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:_named_members:775 (1 samples, 0.19%)</title><rect x="977.2" y="277" width="2.2" height="15.0" fill="rgb(209,48,30)" rx="2" ry="2" />
+<text text-anchor="" x="980.25" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystem.py:&lt;module&gt;:13 (7 samples, 1.30%)</title><rect x="1084.7" y="309" width="15.4" height="15.0" fill="rgb(205,204,2)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/meshcat_visualizer.py:&lt;module&gt;:7 (1 samples, 0.19%)</title><rect x="1185.6" y="293" width="2.2" height="15.0" fill="rgb(247,152,28)" rx="2" ry="2" />
+<text text-anchor="" x="1188.61" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/networks.py:forward:31 (2 samples, 0.37%)</title><rect x="964.1" y="309" width="4.4" height="15.0" fill="rgb(242,179,28)" rx="2" ry="2" />
+<text text-anchor="" x="967.09" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:749 (1 samples, 0.19%)</title><rect x="499.1" y="293" width="2.2" height="15.0" fill="rgb(234,174,32)" rx="2" ry="2" />
+<text text-anchor="" x="502.11" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:pyparsing_common:5804 (1 samples, 0.19%)</title><rect x="1119.8" y="261" width="2.2" height="15.0" fill="rgb(247,61,31)" rx="2" ry="2" />
+<text text-anchor="" x="1122.81" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/_abcoll.py:update:559 (1 samples, 0.19%)</title><rect x="885.1" y="245" width="2.2" height="15.0" fill="rgb(251,178,10)" rx="2" ry="2" />
+<text text-anchor="" x="888.13" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:&lt;lambda&gt;:752 (6 samples, 1.12%)</title><rect x="657.0" y="261" width="13.2" height="15.0" fill="rgb(242,16,48)" rx="2" ry="2" />
+<text text-anchor="" x="660.03" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:695 (2 samples, 0.37%)</title><rect x="360.9" y="293" width="4.4" height="15.0" fill="rgb(226,180,8)" rx="2" ry="2" />
+<text text-anchor="" x="363.93" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getmodule:500 (4 samples, 0.74%)</title><rect x="1091.3" y="181" width="8.8" height="15.0" fill="rgb(218,121,45)" rx="2" ry="2" />
+<text text-anchor="" x="1094.30" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/collections.py:&lt;module&gt;:26 (1 samples, 0.19%)</title><rect x="1128.6" y="293" width="2.2" height="15.0" fill="rgb(229,146,20)" rx="2" ry="2" />
+<text text-anchor="" x="1131.59" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/sre_parse.py:_parse_sub:324 (1 samples, 0.19%)</title><rect x="1117.6" y="181" width="2.2" height="15.0" fill="rgb(229,26,20)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:95 (3 samples, 0.56%)</title><rect x="1029.9" y="325" width="6.6" height="15.0" fill="rgb(251,180,14)" rx="2" ry="2" />
+<text text-anchor="" x="1032.89" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__getattr__:523 (1 samples, 0.19%)</title><rect x="966.3" y="293" width="2.2" height="15.0" fill="rgb(242,225,50)" rx="2" ry="2" />
+<text text-anchor="" x="969.28" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/backend_bases.py:&lt;module&gt;:61 (2 samples, 0.37%)</title><rect x="1137.4" y="309" width="4.3" height="15.0" fill="rgb(253,120,26)" rx="2" ry="2" />
+<text text-anchor="" x="1140.36" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/axes/_subplots.py:&lt;module&gt;:238 (1 samples, 0.19%)</title><rect x="1146.1" y="277" width="2.2" height="15.0" fill="rgb(224,220,35)" rx="2" ry="2" />
+<text text-anchor="" x="1149.13" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/cbook/deprecation.py:deprecate:210 (1 samples, 0.19%)</title><rect x="1143.9" y="229" width="2.2" height="15.0" fill="rgb(238,13,20)" rx="2" ry="2" />
+<text text-anchor="" x="1146.94" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:70 (4 samples, 0.74%)</title><rect x="446.5" y="245" width="8.7" height="15.0" fill="rgb(222,220,1)" rx="2" ry="2" />
+<text text-anchor="" x="449.47" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/backends/_backend_tk.py:&lt;module&gt;:100 (1 samples, 0.19%)</title><rect x="1124.2" y="277" width="2.2" height="15.0" fill="rgb(242,64,42)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:&lt;lambda&gt;:752 (6 samples, 1.12%)</title><rect x="643.9" y="261" width="13.1" height="15.0" fill="rgb(231,179,36)" rx="2" ry="2" />
+<text text-anchor="" x="646.87" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/spatial/kdtree.py:&lt;module&gt;:8 (1 samples, 0.19%)</title><rect x="1075.9" y="245" width="2.2" height="15.0" fill="rgb(241,182,8)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/__init__.py:&lt;module&gt;:2 (1 samples, 0.19%)</title><rect x="1043.0" y="261" width="2.2" height="15.0" fill="rgb(215,134,38)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:724 (2 samples, 0.37%)</title><rect x="492.5" y="277" width="4.4" height="15.0" fill="rgb(242,186,46)" rx="2" ry="2" />
+<text text-anchor="" x="495.53" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;lambda&gt;:65 (28 samples, 5.20%)</title><rect x="882.9" y="309" width="61.4" height="15.0" fill="rgb(214,7,0)" rx="2" ry="2" />
+<text text-anchor="" x="885.94" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >perf.p..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:realpath:376 (1 samples, 0.19%)</title><rect x="1097.9" y="165" width="2.2" height="15.0" fill="rgb(236,146,33)" rx="2" ry="2" />
+<text text-anchor="" x="1100.88" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:64 (2 samples, 0.37%)</title><rect x="926.8" y="261" width="4.4" height="15.0" fill="rgb(241,33,36)" rx="2" ry="2" />
+<text text-anchor="" x="929.80" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:715 (3 samples, 0.56%)</title><rect x="527.6" y="277" width="6.6" height="15.0" fill="rgb(239,83,13)" rx="2" ry="2" />
+<text text-anchor="" x="530.62" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/traj/dircol.py:&lt;module&gt;:24 (4 samples, 0.74%)</title><rect x="1075.9" y="309" width="8.8" height="15.0" fill="rgb(223,141,21)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/site.py:&lt;module&gt;:703 (1 samples, 0.19%)</title><rect x="181.1" y="341" width="2.2" height="15.0" fill="rgb(206,26,50)" rx="2" ry="2" />
+<text text-anchor="" x="184.08" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/sparse/__init__.py:&lt;module&gt;:237 (1 samples, 0.19%)</title><rect x="1075.9" y="229" width="2.2" height="15.0" fill="rgb(245,229,45)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:64 (2 samples, 0.37%)</title><rect x="898.3" y="261" width="4.4" height="15.0" fill="rgb(235,39,42)" rx="2" ry="2" />
+<text text-anchor="" x="901.29" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:56 (4 samples, 0.74%)</title><rect x="935.6" y="277" width="8.7" height="15.0" fill="rgb(242,168,32)" rx="2" ry="2" />
+<text text-anchor="" x="938.58" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/cbook/deprecation.py:deprecate:204 (1 samples, 0.19%)</title><rect x="1124.2" y="245" width="2.2" height="15.0" fill="rgb(240,144,26)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/_functions/thnn/auto.py:&lt;module&gt;:5 (1 samples, 0.19%)</title><rect x="1040.9" y="181" width="2.1" height="15.0" fill="rgb(229,113,33)" rx="2" ry="2" />
+<text text-anchor="" x="1043.86" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:71 (1 samples, 0.19%)</title><rect x="893.9" y="277" width="2.2" height="15.0" fill="rgb(234,184,30)" rx="2" ry="2" />
+<text text-anchor="" x="896.90" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:__init__:66 (1 samples, 0.19%)</title><rect x="929.0" y="245" width="2.2" height="15.0" fill="rgb(229,187,32)" rx="2" ry="2" />
+<text text-anchor="" x="932.00" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:544 (1 samples, 0.19%)</title><rect x="893.9" y="261" width="2.2" height="15.0" fill="rgb(226,49,1)" rx="2" ry="2" />
+<text text-anchor="" x="896.90" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:calculate_gain:45 (1 samples, 0.19%)</title><rect x="937.8" y="229" width="2.2" height="15.0" fill="rgb(230,141,28)" rx="2" ry="2" />
+<text text-anchor="" x="940.77" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:all:2089 (26 samples, 4.83%)</title><rect x="435.5" y="261" width="57.0" height="15.0" fill="rgb(238,10,36)" rx="2" ry="2" />
+<text text-anchor="" x="438.50" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/tempfile.py:&lt;module&gt;:35 (1 samples, 0.19%)</title><rect x="1104.5" y="309" width="2.2" height="15.0" fill="rgb(225,129,31)" rx="2" ry="2" />
+<text text-anchor="" x="1107.46" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/PIL/Image.py:&lt;module&gt;:108 (1 samples, 0.19%)</title><rect x="1137.4" y="293" width="2.2" height="15.0" fill="rgb(238,44,26)" rx="2" ry="2" />
+<text text-anchor="" x="1140.36" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:56 (5 samples, 0.93%)</title><rect x="260.0" y="325" width="11.0" height="15.0" fill="rgb(228,160,35)" rx="2" ry="2" />
+<text text-anchor="" x="263.04" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/cuda/__init__.py:_lazy_call:125 (1 samples, 0.19%)</title><rect x="1036.5" y="277" width="2.2" height="15.0" fill="rgb(245,175,1)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/opt/underactuated/src/underactuated/planar_rigid_body_visualizer.py:&lt;module&gt;:9 (1 samples, 0.19%)</title><rect x="1082.5" y="277" width="2.2" height="15.0" fill="rgb(210,70,26)" rx="2" ry="2" />
+<text text-anchor="" x="1085.53" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:&lt;lambda&gt;:752 (1 samples, 0.19%)</title><rect x="1010.1" y="261" width="2.2" height="15.0" fill="rgb(222,58,6)" rx="2" ry="2" />
+<text text-anchor="" x="1013.15" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:726 (1 samples, 0.19%)</title><rect x="496.9" y="277" width="2.2" height="15.0" fill="rgb(213,165,22)" rx="2" ry="2" />
+<text text-anchor="" x="499.91" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:769 (1 samples, 0.19%)</title><rect x="1014.5" y="293" width="2.2" height="15.0" fill="rgb(220,156,9)" rx="2" ry="2" />
+<text text-anchor="" x="1017.54" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getframeinfo:1013 (7 samples, 1.30%)</title><rect x="1084.7" y="213" width="15.4" height="15.0" fill="rgb(214,101,51)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:76 (1 samples, 0.19%)</title><rect x="968.5" y="325" width="2.2" height="15.0" fill="rgb(237,107,9)" rx="2" ry="2" />
+<text text-anchor="" x="971.48" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/traceback.py:extract_stack:305 (1 samples, 0.19%)</title><rect x="1036.5" y="245" width="2.2" height="15.0" fill="rgb(224,86,34)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/parallel/distributed_cpu.py:&lt;module&gt;:10 (1 samples, 0.19%)</title><rect x="1045.2" y="245" width="2.2" height="15.0" fill="rgb(227,125,18)" rx="2" ry="2" />
+<text text-anchor="" x="1048.24" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/scalar_conversion.py:__init__:88 (7 samples, 1.30%)</title><rect x="1084.7" y="277" width="15.4" height="15.0" fill="rgb(235,29,47)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/subprocess.py:communicate:792 (1 samples, 0.19%)</title><rect x="1181.2" y="181" width="2.2" height="15.0" fill="rgb(217,113,1)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:66 (2 samples, 0.37%)</title><rect x="703.1" y="245" width="4.4" height="15.0" fill="rgb(239,65,19)" rx="2" ry="2" />
+<text text-anchor="" x="706.09" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getouterframes:1038 (7 samples, 1.30%)</title><rect x="1084.7" y="229" width="15.4" height="15.0" fill="rgb(213,72,2)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:realpath:375 (3 samples, 0.56%)</title><rect x="1091.3" y="165" width="6.6" height="15.0" fill="rgb(207,162,48)" rx="2" ry="2" />
+<text text-anchor="" x="1094.30" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:714 (6 samples, 1.12%)</title><rect x="643.9" y="277" width="13.1" height="15.0" fill="rgb(237,3,20)" rx="2" ry="2" />
+<text text-anchor="" x="646.87" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:inner:756 (1 samples, 0.19%)</title><rect x="1043.0" y="165" width="2.2" height="15.0" fill="rgb(208,104,6)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:732 (4 samples, 0.74%)</title><rect x="365.3" y="293" width="8.8" height="15.0" fill="rgb(207,202,31)" rx="2" ry="2" />
+<text text-anchor="" x="368.32" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/shape_base.py:hstack:283 (1 samples, 0.19%)</title><rect x="1023.3" y="309" width="2.2" height="15.0" fill="rgb(210,21,49)" rx="2" ry="2" />
+<text text-anchor="" x="1026.31" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/rcsetup.py:&lt;module&gt;:27 (1 samples, 0.19%)</title><rect x="1115.4" y="309" width="2.2" height="15.0" fill="rgb(245,52,8)" rx="2" ry="2" />
+<text text-anchor="" x="1118.43" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:716 (36 samples, 6.69%)</title><rect x="534.2" y="277" width="79.0" height="15.0" fill="rgb(218,77,21)" rx="2" ry="2" />
+<text text-anchor="" x="537.20" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rve..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/axes/_subplots.py:&lt;module&gt;:10 (2 samples, 0.37%)</title><rect x="1141.7" y="277" width="4.4" height="15.0" fill="rgb(224,125,36)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:750 (52 samples, 9.67%)</title><rect x="501.3" y="293" width="114.1" height="15.0" fill="rgb(228,185,52)" rx="2" ry="2" />
+<text text-anchor="" x="504.30" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rverkuil..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:_subs_tree:677 (1 samples, 0.19%)</title><rect x="1043.0" y="53" width="2.2" height="15.0" fill="rgb(214,223,11)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="63.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/spatial/_spherical_voronoi.py:&lt;module&gt;:19 (1 samples, 0.19%)</title><rect x="1080.3" y="245" width="2.2" height="15.0" fill="rgb(227,24,2)" rx="2" ry="2" />
+<text text-anchor="" x="1083.33" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/sre_parse.py:_parse:429 (1 samples, 0.19%)</title><rect x="1117.6" y="165" width="2.2" height="15.0" fill="rgb(207,207,36)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/meshcat/__init__.py:&lt;module&gt;:3 (1 samples, 0.19%)</title><rect x="1181.2" y="277" width="2.2" height="15.0" fill="rgb(247,100,15)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/axes/_axes.py:&lt;module&gt;:30 (1 samples, 0.19%)</title><rect x="1143.9" y="261" width="2.2" height="15.0" fill="rgb(246,229,6)" rx="2" ry="2" />
+<text text-anchor="" x="1146.94" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:named_parameters:831 (1 samples, 0.19%)</title><rect x="977.2" y="293" width="2.2" height="15.0" fill="rgb(223,91,37)" rx="2" ry="2" />
+<text text-anchor="" x="980.25" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:named_modules:973 (1 samples, 0.19%)</title><rect x="946.5" y="261" width="2.2" height="15.0" fill="rgb(230,178,4)" rx="2" ry="2" />
+<text text-anchor="" x="949.54" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/cbook/__init__.py:&lt;module&gt;:34 (4 samples, 0.74%)</title><rect x="1106.7" y="309" width="8.7" height="15.0" fill="rgb(208,112,38)" rx="2" ry="2" />
+<text text-anchor="" x="1109.65" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:&lt;module&gt;:112 (1 samples, 0.19%)</title><rect x="1100.1" y="325" width="2.2" height="15.0" fill="rgb(245,47,45)" rx="2" ry="2" />
+<text text-anchor="" x="1103.07" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/__init__.py:&lt;module&gt;:160 (1 samples, 0.19%)</title><rect x="1113.2" y="293" width="2.2" height="15.0" fill="rgb(216,189,10)" rx="2" ry="2" />
+<text text-anchor="" x="1116.23" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:86 (1 samples, 0.19%)</title><rect x="979.4" y="325" width="2.2" height="15.0" fill="rgb(227,166,23)" rx="2" ry="2" />
+<text text-anchor="" x="982.44" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:isnumber:696 (3 samples, 0.56%)</title><rect x="374.1" y="277" width="6.6" height="15.0" fill="rgb(215,104,7)" rx="2" ry="2" />
+<text text-anchor="" x="377.09" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/meshcat/animation.py:&lt;module&gt;:4 (1 samples, 0.19%)</title><rect x="1183.4" y="261" width="2.2" height="15.0" fill="rgb(250,26,12)" rx="2" ry="2" />
+<text text-anchor="" x="1186.42" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:782 (10 samples, 1.86%)</title><rect x="861.0" y="293" width="21.9" height="15.0" fill="rgb(210,160,2)" rx="2" ry="2" />
+<text text-anchor="" x="864.00" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:&lt;lambda&gt;:749 (5 samples, 0.93%)</title><rect x="516.7" y="261" width="10.9" height="15.0" fill="rgb(246,41,16)" rx="2" ry="2" />
+<text text-anchor="" x="519.65" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:suppress:2072 (1 samples, 0.19%)</title><rect x="1119.8" y="245" width="2.2" height="15.0" fill="rgb(230,125,22)" rx="2" ry="2" />
+<text text-anchor="" x="1122.81" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/style/core.py:load_base_library:162 (1 samples, 0.19%)</title><rect x="1135.2" y="277" width="2.2" height="15.0" fill="rgb(223,156,2)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/parallel/__init__.py:&lt;module&gt;:6 (1 samples, 0.19%)</title><rect x="1045.2" y="261" width="2.2" height="15.0" fill="rgb(206,102,29)" rx="2" ry="2" />
+<text text-anchor="" x="1048.24" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/backends/thnn.py:&lt;module&gt;:29 (2 samples, 0.37%)</title><rect x="1038.7" y="229" width="4.3" height="15.0" fill="rgb(245,63,25)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/urlparse.py:&lt;module&gt;:121 (1 samples, 0.19%)</title><rect x="1122.0" y="229" width="2.2" height="15.0" fill="rgb(242,129,25)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:66 (3 samples, 0.56%)</title><rect x="562.7" y="245" width="6.6" height="15.0" fill="rgb(222,73,11)" rx="2" ry="2" />
+<text text-anchor="" x="565.71" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/backends/__init__.py:pylab_setup:62 (1 samples, 0.19%)</title><rect x="1124.2" y="309" width="2.2" height="15.0" fill="rgb(233,152,26)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/__init__.py:&lt;module&gt;:84 (12 samples, 2.23%)</title><rect x="1049.6" y="309" width="26.3" height="15.0" fill="rgb(233,195,21)" rx="2" ry="2" />
+<text text-anchor="" x="1052.63" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>perf.py:&lt;module&gt;:6 (7 samples, 1.30%)</title><rect x="1148.3" y="341" width="15.4" height="15.0" fill="rgb(209,190,9)" rx="2" ry="2" />
+<text text-anchor="" x="1151.33" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/_jit_internal.py:&lt;module&gt;:155 (1 samples, 0.19%)</title><rect x="1043.0" y="197" width="2.2" height="15.0" fill="rgb(211,204,8)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:&lt;module&gt;:130 (3 samples, 0.56%)</title><rect x="1115.4" y="325" width="6.6" height="15.0" fill="rgb(207,47,45)" rx="2" ry="2" />
+<text text-anchor="" x="1118.43" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:join:68 (1 samples, 0.19%)</title><rect x="181.1" y="293" width="2.2" height="15.0" fill="rgb(246,202,7)" rx="2" ry="2" />
+<text text-anchor="" x="184.08" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:692 (1 samples, 0.19%)</title><rect x="352.2" y="293" width="2.1" height="15.0" fill="rgb(233,115,29)" rx="2" ry="2" />
+<text text-anchor="" x="355.16" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:57 (2 samples, 0.37%)</title><rect x="271.0" y="325" width="4.4" height="15.0" fill="rgb(248,56,20)" rx="2" ry="2" />
+<text text-anchor="" x="274.00" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:_replace_arg:636 (1 samples, 0.19%)</title><rect x="1043.0" y="85" width="2.2" height="15.0" fill="rgb(235,206,31)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/meshcat/commands.py:&lt;module&gt;:7 (1 samples, 0.19%)</title><rect x="1181.2" y="261" width="2.2" height="15.0" fill="rgb(226,126,40)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/artist.py:pprint_setters:1244 (1 samples, 0.19%)</title><rect x="1126.4" y="261" width="2.2" height="15.0" fill="rgb(243,106,52)" rx="2" ry="2" />
+<text text-anchor="" x="1129.39" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__getattr__:522 (1 samples, 0.19%)</title><rect x="940.0" y="245" width="2.2" height="15.0" fill="rgb(228,214,19)" rx="2" ry="2" />
+<text text-anchor="" x="942.96" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:61 (28 samples, 5.20%)</title><rect x="882.9" y="325" width="61.4" height="15.0" fill="rgb(233,142,42)" rx="2" ry="2" />
+<text text-anchor="" x="885.94" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/cm.py:&lt;module&gt;:91 (1 samples, 0.19%)</title><rect x="1128.6" y="277" width="2.2" height="15.0" fill="rgb(208,28,33)" rx="2" ry="2" />
+<text text-anchor="" x="1131.59" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/re.py:match:141 (1 samples, 0.19%)</title><rect x="1102.3" y="213" width="2.2" height="15.0" fill="rgb(253,136,38)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:__getitem__:1235 (1 samples, 0.19%)</title><rect x="1043.0" y="149" width="2.2" height="15.0" fill="rgb(235,2,9)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:67 (1 samples, 0.19%)</title><rect x="902.7" y="261" width="2.2" height="15.0" fill="rgb(245,222,35)" rx="2" ry="2" />
+<text text-anchor="" x="905.68" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:__init__:2829 (1 samples, 0.19%)</title><rect x="1117.6" y="261" width="2.2" height="15.0" fill="rgb(210,198,4)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/_abcoll.py:update:572 (1 samples, 0.19%)</title><rect x="1102.3" y="293" width="2.2" height="15.0" fill="rgb(236,186,21)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:745 (2 samples, 0.37%)</title><rect x="994.8" y="293" width="4.4" height="15.0" fill="rgb(209,23,15)" rx="2" ry="2" />
+<text text-anchor="" x="997.80" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/artist.py:_get_setters_and_targets:1169 (1 samples, 0.19%)</title><rect x="1126.4" y="245" width="2.2" height="15.0" fill="rgb(252,108,54)" rx="2" ry="2" />
+<text text-anchor="" x="1129.39" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/site.py:addsitepackages:238 (1 samples, 0.19%)</title><rect x="181.1" y="309" width="2.2" height="15.0" fill="rgb(221,102,44)" rx="2" ry="2" />
+<text text-anchor="" x="184.08" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:__init__:69 (1 samples, 0.19%)</title><rect x="885.1" y="261" width="2.2" height="15.0" fill="rgb(249,86,44)" rx="2" ry="2" />
+<text text-anchor="" x="888.13" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:716 (2 samples, 0.37%)</title><rect x="1003.6" y="277" width="4.4" height="15.0" fill="rgb(248,152,35)" rx="2" ry="2" />
+<text text-anchor="" x="1006.57" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/networks.py:__init__:24 (1 samples, 0.19%)</title><rect x="896.1" y="293" width="2.2" height="15.0" fill="rgb(248,128,3)" rx="2" ry="2" />
+<text text-anchor="" x="899.10" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/sre_parse.py:append:150 (1 samples, 0.19%)</title><rect x="1117.6" y="149" width="2.2" height="15.0" fill="rgb(213,100,27)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:calculate_gain:45 (1 samples, 0.19%)</title><rect x="922.4" y="229" width="2.2" height="15.0" fill="rgb(229,191,29)" rx="2" ry="2" />
+<text text-anchor="" x="925.42" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:join:68 (1 samples, 0.19%)</title><rect x="1093.5" y="133" width="2.2" height="15.0" fill="rgb(223,35,16)" rx="2" ry="2" />
+<text text-anchor="" x="1096.49" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/common/__init__.py:&lt;module&gt;:3 (7 samples, 1.30%)</title><rect x="1148.3" y="309" width="15.4" height="15.0" fill="rgb(213,146,17)" rx="2" ry="2" />
+<text text-anchor="" x="1151.33" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/contour.py:&lt;module&gt;:21 (1 samples, 0.19%)</title><rect x="1130.8" y="293" width="2.2" height="15.0" fill="rgb(230,31,15)" rx="2" ry="2" />
+<text text-anchor="" x="1133.78" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/linalg/__init__.py:&lt;module&gt;:205 (1 samples, 0.19%)</title><rect x="1080.3" y="213" width="2.2" height="15.0" fill="rgb(248,225,47)" rx="2" ry="2" />
+<text text-anchor="" x="1083.33" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/text.py:&lt;module&gt;:21 (1 samples, 0.19%)</title><rect x="1130.8" y="277" width="2.2" height="15.0" fill="rgb(226,123,8)" rx="2" ry="2" />
+<text text-anchor="" x="1133.78" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:776 (12 samples, 2.23%)</title><rect x="825.9" y="293" width="26.3" height="15.0" fill="rgb(238,22,0)" rx="2" ry="2" />
+<text text-anchor="" x="828.91" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:&lt;module&gt;:4 (18 samples, 3.35%)</title><rect x="1036.5" y="325" width="39.4" height="15.0" fill="rgb(242,167,15)" rx="2" ry="2" />
+<text text-anchor="" x="1039.47" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/ho..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:714 (1 samples, 0.19%)</title><rect x="994.8" y="277" width="2.2" height="15.0" fill="rgb(228,9,13)" rx="2" ry="2" />
+<text text-anchor="" x="997.80" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:_rc_params_in_file:1092 (1 samples, 0.19%)</title><rect x="1135.2" y="229" width="2.2" height="15.0" fill="rgb(219,139,52)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/functional.py:&lt;module&gt;:2 (4 samples, 0.74%)</title><rect x="1038.7" y="293" width="8.7" height="15.0" fill="rgb(246,45,26)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:538 (1 samples, 0.19%)</title><rect x="896.1" y="277" width="2.2" height="15.0" fill="rgb(227,138,4)" rx="2" ry="2" />
+<text text-anchor="" x="899.10" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/scalar_conversion.py:define:129 (7 samples, 1.30%)</title><rect x="1084.7" y="293" width="15.4" height="15.0" fill="rgb(245,220,29)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:stack:1060 (7 samples, 1.30%)</title><rect x="1084.7" y="245" width="15.4" height="15.0" fill="rgb(220,193,8)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/shape_base.py:atleast_1d:57 (1 samples, 0.19%)</title><rect x="1023.3" y="293" width="2.2" height="15.0" fill="rgb(221,133,38)" rx="2" ry="2" />
+<text text-anchor="" x="1026.31" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:716 (40 samples, 7.43%)</title><rect x="404.8" y="277" width="87.7" height="15.0" fill="rgb(253,136,43)" rx="2" ry="2" />
+<text text-anchor="" x="407.80" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rver..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/six.py:_resolve:160 (1 samples, 0.19%)</title><rect x="1122.0" y="293" width="2.2" height="15.0" fill="rgb(218,98,3)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:kaiming_uniform_:289 (1 samples, 0.19%)</title><rect x="937.8" y="245" width="2.2" height="15.0" fill="rgb(247,66,23)" rx="2" ry="2" />
+<text text-anchor="" x="940.77" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>(idle) (78 samples, 14.50%)</title><rect x="10.0" y="341" width="171.1" height="15.0" fill="rgb(209,47,23)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >(idle)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:544 (1 samples, 0.19%)</title><rect x="898.3" y="245" width="2.2" height="15.0" fill="rgb(212,14,32)" rx="2" ry="2" />
+<text text-anchor="" x="901.29" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:87 (18 samples, 3.35%)</title><rect x="981.6" y="325" width="39.5" height="15.0" fill="rgb(246,60,34)" rx="2" ry="2" />
+<text text-anchor="" x="984.64" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/ho..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:544 (1 samples, 0.19%)</title><rect x="933.4" y="245" width="2.2" height="15.0" fill="rgb(216,126,50)" rx="2" ry="2" />
+<text text-anchor="" x="936.38" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:714 (9 samples, 1.67%)</title><rect x="385.1" y="277" width="19.7" height="15.0" fill="rgb(211,75,40)" rx="2" ry="2" />
+<text text-anchor="" x="388.06" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:all:2089 (20 samples, 3.72%)</title><rect x="696.5" y="261" width="43.9" height="15.0" fill="rgb(254,4,24)" rx="2" ry="2" />
+<text text-anchor="" x="699.51" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/hom..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:753 (2 samples, 0.37%)</title><rect x="1010.1" y="293" width="4.4" height="15.0" fill="rgb(210,228,53)" rx="2" ry="2" />
+<text text-anchor="" x="1013.15" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:83 (17 samples, 3.16%)</title><rect x="575.9" y="245" width="37.3" height="15.0" fill="rgb(254,36,23)" rx="2" ry="2" />
+<text text-anchor="" x="578.87" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/ho..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:69 (1 samples, 0.19%)</title><rect x="889.5" y="277" width="2.2" height="15.0" fill="rgb(222,173,18)" rx="2" ry="2" />
+<text text-anchor="" x="892.52" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:&lt;module&gt;:5558 (1 samples, 0.19%)</title><rect x="1119.8" y="277" width="2.2" height="15.0" fill="rgb(223,79,34)" rx="2" ry="2" />
+<text text-anchor="" x="1122.81" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/cm.py:_generate_cmap:77 (1 samples, 0.19%)</title><rect x="1128.6" y="261" width="2.2" height="15.0" fill="rgb(234,78,29)" rx="2" ry="2" />
+<text text-anchor="" x="1131.59" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:parameters:805 (2 samples, 0.37%)</title><rect x="944.3" y="309" width="4.4" height="15.0" fill="rgb(246,198,32)" rx="2" ry="2" />
+<text text-anchor="" x="947.35" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:&lt;module&gt;:37 (1 samples, 0.19%)</title><rect x="1100.1" y="309" width="2.2" height="15.0" fill="rgb(243,113,4)" rx="2" ry="2" />
+<text text-anchor="" x="1103.07" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:43 (2 samples, 0.37%)</title><rect x="1172.5" y="325" width="4.3" height="15.0" fill="rgb(214,102,47)" rx="2" ry="2" />
+<text text-anchor="" x="1175.45" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/_functions/thnn/auto.py:_generate_function_classes:270 (1 samples, 0.19%)</title><rect x="1038.7" y="165" width="2.2" height="15.0" fill="rgb(216,181,34)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/pyplot.py:&lt;module&gt;:38 (2 samples, 0.37%)</title><rect x="1137.4" y="325" width="4.3" height="15.0" fill="rgb(245,34,54)" rx="2" ry="2" />
+<text text-anchor="" x="1140.36" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/patches.py:&lt;module&gt;:1944 (1 samples, 0.19%)</title><rect x="1130.8" y="261" width="2.2" height="15.0" fill="rgb(227,35,50)" rx="2" ry="2" />
+<text text-anchor="" x="1133.78" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_equal:865 (16 samples, 2.97%)</title><rect x="986.0" y="309" width="35.1" height="15.0" fill="rgb(239,185,17)" rx="2" ry="2" />
+<text text-anchor="" x="989.02" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/re.py:compile:194 (1 samples, 0.19%)</title><rect x="1117.6" y="245" width="2.2" height="15.0" fill="rgb(233,74,9)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:abspath:366 (1 samples, 0.19%)</title><rect x="1089.1" y="149" width="2.2" height="15.0" fill="rgb(229,185,4)" rx="2" ry="2" />
+<text text-anchor="" x="1092.11" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/_thnn/utils.py:parse_header:104 (1 samples, 0.19%)</title><rect x="1038.7" y="149" width="2.2" height="15.0" fill="rgb(249,128,17)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/ctypes/util.py:find_library:285 (1 samples, 0.19%)</title><rect x="1181.2" y="213" width="2.2" height="15.0" fill="rgb(213,53,16)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scandir.py:&lt;module&gt;:452 (1 samples, 0.19%)</title><rect x="1139.6" y="261" width="2.1" height="15.0" fill="rgb(214,142,35)" rx="2" ry="2" />
+<text text-anchor="" x="1142.55" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/ctypes/util.py:find_library:285 (1 samples, 0.19%)</title><rect x="1139.6" y="245" width="2.1" height="15.0" fill="rgb(218,34,35)" rx="2" ry="2" />
+<text text-anchor="" x="1142.55" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:31 (1 samples, 0.19%)</title><rect x="1168.1" y="325" width="2.2" height="15.0" fill="rgb(232,202,32)" rx="2" ry="2" />
+<text text-anchor="" x="1171.07" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:689 (1 samples, 0.19%)</title><rect x="986.0" y="293" width="2.2" height="15.0" fill="rgb(254,42,29)" rx="2" ry="2" />
+<text text-anchor="" x="989.02" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/httplib.py:&lt;module&gt;:74 (1 samples, 0.19%)</title><rect x="1122.0" y="245" width="2.2" height="15.0" fill="rgb(227,86,3)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/artist.py:kwdoc:1480 (1 samples, 0.19%)</title><rect x="1146.1" y="261" width="2.2" height="15.0" fill="rgb(216,105,11)" rx="2" ry="2" />
+<text text-anchor="" x="1149.13" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:__init__:3792 (1 samples, 0.19%)</title><rect x="1119.8" y="213" width="2.2" height="15.0" fill="rgb(238,140,42)" rx="2" ry="2" />
+<text text-anchor="" x="1122.81" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:__init__:59 (1 samples, 0.19%)</title><rect x="900.5" y="245" width="2.2" height="15.0" fill="rgb(213,38,1)" rx="2" ry="2" />
+<text text-anchor="" x="903.48" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/string.py:lower:228 (1 samples, 0.19%)</title><rect x="1086.9" y="133" width="2.2" height="15.0" fill="rgb(235,121,37)" rx="2" ry="2" />
+<text text-anchor="" x="1089.91" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/colorbar.py:&lt;module&gt;:34 (2 samples, 0.37%)</title><rect x="1126.4" y="309" width="4.4" height="15.0" fill="rgb(252,152,14)" rx="2" ry="2" />
+<text text-anchor="" x="1129.39" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/_reduction.py:&lt;module&gt;:2 (1 samples, 0.19%)</title><rect x="1043.0" y="213" width="2.2" height="15.0" fill="rgb(246,123,11)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:753 (57 samples, 10.59%)</title><rect x="615.4" y="293" width="125.0" height="15.0" fill="rgb(244,167,35)" rx="2" ry="2" />
+<text text-anchor="" x="618.35" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/home/rverkuil/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/meshcat_visualizer.py:&lt;module&gt;:9 (1 samples, 0.19%)</title><rect x="1187.8" y="293" width="2.2" height="15.0" fill="rgb(218,59,6)" rx="2" ry="2" />
+<text text-anchor="" x="1190.81" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:findsource:532 (7 samples, 1.30%)</title><rect x="1084.7" y="197" width="15.4" height="15.0" fill="rgb(245,64,14)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/argparse.py:&lt;module&gt;:92 (1 samples, 0.19%)</title><rect x="1185.6" y="277" width="2.2" height="15.0" fill="rgb(224,216,50)" rx="2" ry="2" />
+<text text-anchor="" x="1188.61" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/rcsetup.py:&lt;module&gt;:29 (2 samples, 0.37%)</title><rect x="1117.6" y="309" width="4.4" height="15.0" fill="rgb(208,50,47)" rx="2" ry="2" />
+<text text-anchor="" x="1120.62" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:70 (1 samples, 0.19%)</title><rect x="891.7" y="277" width="2.2" height="15.0" fill="rgb(235,154,19)" rx="2" ry="2" />
+<text text-anchor="" x="894.71" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:kaiming_uniform_:293 (1 samples, 0.19%)</title><rect x="924.6" y="245" width="2.2" height="15.0" fill="rgb(233,184,29)" rx="2" ry="2" />
+<text text-anchor="" x="927.61" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/six.py:_import_module:82 (1 samples, 0.19%)</title><rect x="1122.0" y="277" width="2.2" height="15.0" fill="rgb(245,80,15)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/axes/__init__.py:&lt;module&gt;:4 (3 samples, 0.56%)</title><rect x="1141.7" y="293" width="6.6" height="15.0" fill="rgb(213,195,22)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/webbrowser.py:&lt;module&gt;:6 (1 samples, 0.19%)</title><rect x="1187.8" y="277" width="2.2" height="15.0" fill="rgb(223,55,10)" rx="2" ry="2" />
+<text text-anchor="" x="1190.81" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/contour.py:&lt;module&gt;:25 (1 samples, 0.19%)</title><rect x="1133.0" y="293" width="2.2" height="15.0" fill="rgb(252,149,33)" rx="2" ry="2" />
+<text text-anchor="" x="1135.97" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/artist.py:kwdoc:1480 (1 samples, 0.19%)</title><rect x="1126.4" y="277" width="2.2" height="15.0" fill="rgb(241,156,28)" rx="2" ry="2" />
+<text text-anchor="" x="1129.39" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:715 (1 samples, 0.19%)</title><rect x="997.0" y="277" width="2.2" height="15.0" fill="rgb(223,61,1)" rx="2" ry="2" />
+<text text-anchor="" x="999.99" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__getattr__:523 (1 samples, 0.19%)</title><rect x="942.2" y="245" width="2.1" height="15.0" fill="rgb(231,192,13)" rx="2" ry="2" />
+<text text-anchor="" x="945.16" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:_joinrealpath:386 (1 samples, 0.19%)</title><rect x="1091.3" y="149" width="2.2" height="15.0" fill="rgb(254,73,12)" rx="2" ry="2" />
+<text text-anchor="" x="1094.30" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/pyplot.py:&lt;module&gt;:32 (1 samples, 0.19%)</title><rect x="1135.2" y="325" width="2.2" height="15.0" fill="rgb(253,159,3)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all (538 samples, 100%)</title><rect x="10.0" y="357" width="1180.0" height="15.0" fill="rgb(251,77,27)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="367.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:__init__:69 (1 samples, 0.19%)</title><rect x="931.2" y="245" width="2.2" height="15.0" fill="rgb(247,79,21)" rx="2" ry="2" />
+<text text-anchor="" x="934.19" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:namedtuple:386 (1 samples, 0.19%)</title><rect x="1122.0" y="213" width="2.2" height="15.0" fill="rgb(248,73,21)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/urllib2.py:&lt;module&gt;:94 (1 samples, 0.19%)</title><rect x="1122.0" y="261" width="2.2" height="15.0" fill="rgb(241,45,12)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:__init__:60 (1 samples, 0.19%)</title><rect x="887.3" y="261" width="2.2" height="15.0" fill="rgb(235,0,16)" rx="2" ry="2" />
+<text text-anchor="" x="890.32" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__init__:72 (1 samples, 0.19%)</title><rect x="904.9" y="261" width="2.2" height="15.0" fill="rgb(212,103,0)" rx="2" ry="2" />
+<text text-anchor="" x="907.87" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/backends/backend_tkagg.py:&lt;module&gt;:6 (1 samples, 0.19%)</title><rect x="1124.2" y="293" width="2.2" height="15.0" fill="rgb(206,53,37)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/_weakrefset.py:__contains__:75 (1 samples, 0.19%)</title><rect x="931.2" y="213" width="2.2" height="15.0" fill="rgb(209,204,34)" rx="2" ry="2" />
+<text text-anchor="" x="934.19" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:729 (1 samples, 0.19%)</title><rect x="1008.0" y="277" width="2.1" height="15.0" fill="rgb(246,65,53)" rx="2" ry="2" />
+<text text-anchor="" x="1010.96" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:rc_params_from_file:1133 (1 samples, 0.19%)</title><rect x="1135.2" y="245" width="2.2" height="15.0" fill="rgb(246,223,29)" rx="2" ry="2" />
+<text text-anchor="" x="1138.17" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:71 (2 samples, 0.37%)</title><rect x="964.1" y="325" width="4.4" height="15.0" fill="rgb(230,214,29)" rx="2" ry="2" />
+<text text-anchor="" x="967.09" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/__init__.py:&lt;module&gt;:1 (3 samples, 0.56%)</title><rect x="1038.7" y="277" width="6.5" height="15.0" fill="rgb(212,163,47)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:reset_parameters:59 (5 samples, 0.93%)</title><rect x="915.8" y="261" width="11.0" height="15.0" fill="rgb(247,0,15)" rx="2" ry="2" />
+<text text-anchor="" x="918.84" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:49 (2 samples, 0.37%)</title><rect x="907.1" y="277" width="4.3" height="15.0" fill="rgb(221,104,43)" rx="2" ry="2" />
+<text text-anchor="" x="910.06" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/common/cpp_template.py:_get_module_name_from_stack:12 (7 samples, 1.30%)</title><rect x="1084.7" y="261" width="15.4" height="15.0" fill="rgb(231,66,17)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:kaiming_uniform_:289 (2 samples, 0.37%)</title><rect x="920.2" y="245" width="4.4" height="15.0" fill="rgb(224,229,34)" rx="2" ry="2" />
+<text text-anchor="" x="923.22" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:714 (5 samples, 0.93%)</title><rect x="516.7" y="277" width="10.9" height="15.0" fill="rgb(238,168,43)" rx="2" ry="2" />
+<text text-anchor="" x="519.65" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/shape_base.py:hstack:283 (1 samples, 0.19%)</title><rect x="1025.5" y="309" width="2.2" height="15.0" fill="rgb(232,167,17)" rx="2" ry="2" />
+<text text-anchor="" x="1028.50" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/cbook/deprecation.py:_generate_deprecation_message:48 (1 samples, 0.19%)</title><rect x="1124.2" y="229" width="2.2" height="15.0" fill="rgb(212,209,5)" rx="2" ry="2" />
+<text text-anchor="" x="1127.20" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/spatial/__init__.py:&lt;module&gt;:96 (1 samples, 0.19%)</title><rect x="1078.1" y="261" width="2.2" height="15.0" fill="rgb(231,228,1)" rx="2" ry="2" />
+<text text-anchor="" x="1081.14" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/__init__.py:__setitem__:921 (1 samples, 0.19%)</title><rect x="1102.3" y="277" width="2.2" height="15.0" fill="rgb(252,105,7)" rx="2" ry="2" />
+<text text-anchor="" x="1105.27" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:55 (14 samples, 2.60%)</title><rect x="229.3" y="325" width="30.7" height="15.0" fill="rgb(224,209,48)" rx="2" ry="2" />
+<text text-anchor="" x="232.33" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/h..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/multibody/all.py:&lt;module&gt;:3 (1 samples, 0.19%)</title><rect x="1174.6" y="309" width="2.2" height="15.0" fill="rgb(221,18,44)" rx="2" ry="2" />
+<text text-anchor="" x="1177.65" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:kaiming_uniform_:288 (1 samples, 0.19%)</title><rect x="918.0" y="245" width="2.2" height="15.0" fill="rgb(209,96,33)" rx="2" ry="2" />
+<text text-anchor="" x="921.03" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/textwrap.py:dedent:423 (1 samples, 0.19%)</title><rect x="1143.9" y="213" width="2.2" height="15.0" fill="rgb(209,112,20)" rx="2" ry="2" />
+<text text-anchor="" x="1146.94" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/_functions/thnn/auto.py:&lt;module&gt;:363 (1 samples, 0.19%)</title><rect x="1038.7" y="181" width="2.2" height="15.0" fill="rgb(253,60,29)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/systems/all.py:&lt;module&gt;:5 (4 samples, 0.74%)</title><rect x="1181.2" y="309" width="8.8" height="15.0" fill="rgb(250,47,38)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/re.py:_compile:235 (1 samples, 0.19%)</title><rect x="1143.9" y="181" width="2.2" height="15.0" fill="rgb(205,25,34)" rx="2" ry="2" />
+<text text-anchor="" x="1146.94" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/colors.py:__init__:444 (1 samples, 0.19%)</title><rect x="1128.6" y="229" width="2.2" height="15.0" fill="rgb(224,59,13)" rx="2" ry="2" />
+<text text-anchor="" x="1131.59" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/pyplot.py:&lt;module&gt;:39 (3 samples, 0.56%)</title><rect x="1141.7" y="325" width="6.6" height="15.0" fill="rgb(238,173,29)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/subprocess.py:communicate:793 (1 samples, 0.19%)</title><rect x="1139.6" y="213" width="2.1" height="15.0" fill="rgb(210,1,25)" rx="2" ry="2" />
+<text text-anchor="" x="1142.55" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/__init__.py:&lt;module&gt;:16 (1 samples, 0.19%)</title><rect x="1108.8" y="229" width="2.2" height="15.0" fill="rgb(252,10,47)" rx="2" ry="2" />
+<text text-anchor="" x="1111.85" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/collections.py:__init__:60 (1 samples, 0.19%)</title><rect x="926.8" y="245" width="2.2" height="15.0" fill="rgb(219,121,26)" rx="2" ry="2" />
+<text text-anchor="" x="929.80" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/tensor.py:backward:102 (1 samples, 0.19%)</title><rect x="968.5" y="309" width="2.2" height="15.0" fill="rgb(222,160,12)" rx="2" ry="2" />
+<text text-anchor="" x="971.48" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/meshcat/geometry.py:&lt;module&gt;:5 (1 samples, 0.19%)</title><rect x="1181.2" y="245" width="2.2" height="15.0" fill="rgb(221,82,34)" rx="2" ry="2" />
+<text text-anchor="" x="1184.23" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/shape_base.py:atleast_1d:57 (1 samples, 0.19%)</title><rect x="1025.5" y="293" width="2.2" height="15.0" fill="rgb(242,40,47)" rx="2" ry="2" />
+<text text-anchor="" x="1028.50" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/drake-pytorch/python/nn_system/NNSystemHelper.py:constraint:54 (2 samples, 0.37%)</title><rect x="224.9" y="325" width="4.4" height="15.0" fill="rgb(235,136,27)" rx="2" ry="2" />
+<text text-anchor="" x="227.94" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:&lt;module&gt;:6 (2 samples, 0.37%)</title><rect x="1038.7" y="245" width="4.3" height="15.0" fill="rgb(206,96,16)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/clean_drake_build/drake-build/install/lib/python2.7/site-packages/pydrake/all.py:&lt;module&gt;:41 (1 samples, 0.19%)</title><rect x="1170.3" y="325" width="2.2" height="15.0" fill="rgb(233,122,31)" rx="2" ry="2" />
+<text text-anchor="" x="1173.26" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/__init__.py:&lt;module&gt;:263 (4 samples, 0.74%)</title><rect x="1038.7" y="309" width="8.7" height="15.0" fill="rgb(232,60,1)" rx="2" ry="2" />
+<text text-anchor="" x="1041.66" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/six.py:__get__:92 (1 samples, 0.19%)</title><rect x="1122.0" y="309" width="2.2" height="15.0" fill="rgb(230,1,48)" rx="2" ry="2" />
+<text text-anchor="" x="1125.01" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/core/fromnumeric.py:_wrapreduction:70 (1 samples, 0.19%)</title><rect x="707.5" y="245" width="2.2" height="15.0" fill="rgb(228,9,35)" rx="2" ry="2" />
+<text text-anchor="" x="710.47" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:_replace_arg:635 (1 samples, 0.19%)</title><rect x="1043.0" y="37" width="2.2" height="15.0" fill="rgb(218,202,16)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="47.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:690 (10 samples, 1.86%)</title><rect x="330.2" y="293" width="22.0" height="15.0" fill="rgb(216,101,5)" rx="2" ry="2" />
+<text text-anchor="" x="333.22" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >/..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/spatial/distance.py:&lt;module&gt;:123 (1 samples, 0.19%)</title><rect x="1080.3" y="229" width="2.2" height="15.0" fill="rgb(215,170,51)" rx="2" ry="2" />
+<text text-anchor="" x="1083.33" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/pyparsing.py:__init__:4384 (1 samples, 0.19%)</title><rect x="1119.8" y="229" width="2.2" height="15.0" fill="rgb(224,170,16)" rx="2" ry="2" />
+<text text-anchor="" x="1122.81" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/lib/python2.7/posixpath.py:normpath:351 (1 samples, 0.19%)</title><rect x="1089.1" y="133" width="2.2" height="15.0" fill="rgb(213,50,29)" rx="2" ry="2" />
+<text text-anchor="" x="1092.11" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/init.py:calculate_gain:40 (1 samples, 0.19%)</title><rect x="920.2" y="229" width="2.2" height="15.0" fill="rgb(221,116,19)" rx="2" ry="2" />
+<text text-anchor="" x="923.22" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:func_assert_same_pos:715 (6 samples, 1.12%)</title><rect x="657.0" y="277" width="13.2" height="15.0" fill="rgb(237,35,31)" rx="2" ry="2" />
+<text text-anchor="" x="660.03" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/autograd/__init__.py:backward:90 (1 samples, 0.19%)</title><rect x="968.5" y="293" width="2.2" height="15.0" fill="rgb(208,180,0)" rx="2" ry="2" />
+<text text-anchor="" x="971.48" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:__setattr__:558 (1 samples, 0.19%)</title><rect x="904.9" y="245" width="2.2" height="15.0" fill="rgb(252,1,34)" rx="2" ry="2" />
+<text text-anchor="" x="907.87" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/random.py:&lt;module&gt;:49 (1 samples, 0.19%)</title><rect x="1104.5" y="293" width="2.2" height="15.0" fill="rgb(216,150,42)" rx="2" ry="2" />
+<text text-anchor="" x="1107.46" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/lib/__init__.py:&lt;module&gt;:8 (2 samples, 0.37%)</title><rect x="1108.8" y="261" width="4.4" height="15.0" fill="rgb(243,95,3)" rx="2" ry="2" />
+<text text-anchor="" x="1111.85" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:parameters:805 (1 samples, 0.19%)</title><rect x="977.2" y="309" width="2.2" height="15.0" fill="rgb(234,123,11)" rx="2" ry="2" />
+<text text-anchor="" x="980.25" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/typing.py:_subs_tree:1178 (1 samples, 0.19%)</title><rect x="1043.0" y="69" width="2.2" height="15.0" fill="rgb(254,223,46)" rx="2" ry="2" />
+<text text-anchor="" x="1046.05" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/module.py:named_parameters:831 (1 samples, 0.19%)</title><rect x="946.5" y="293" width="2.2" height="15.0" fill="rgb(244,222,4)" rx="2" ry="2" />
+<text text-anchor="" x="949.54" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getabsfile:467 (1 samples, 0.19%)</title><rect x="1089.1" y="165" width="2.2" height="15.0" fill="rgb(216,11,9)" rx="2" ry="2" />
+<text text-anchor="" x="1092.11" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:771 (1 samples, 0.19%)</title><rect x="1016.7" y="293" width="2.2" height="15.0" fill="rgb(235,145,20)" rx="2" ry="2" />
+<text text-anchor="" x="1019.73" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/numpy/testing/_private/utils.py:assert_array_compare:743 (3 samples, 0.56%)</title><rect x="374.1" y="293" width="6.6" height="15.0" fill="rgb(251,196,39)" rx="2" ry="2" />
+<text text-anchor="" x="377.09" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:56 (5 samples, 0.93%)</title><rect x="915.8" y="277" width="11.0" height="15.0" fill="rgb(229,64,30)" rx="2" ry="2" />
+<text text-anchor="" x="918.84" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/dateutil/rrule.py:&lt;module&gt;:10 (1 samples, 0.19%)</title><rect x="1141.7" y="229" width="2.2" height="15.0" fill="rgb(221,130,12)" rx="2" ry="2" />
+<text text-anchor="" x="1144.75" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/usr/lib/python2.7/inspect.py:getmodule:490 (1 samples, 0.19%)</title><rect x="1084.7" y="181" width="2.2" height="15.0" fill="rgb(238,18,52)" rx="2" ry="2" />
+<text text-anchor="" x="1087.72" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/torch/nn/modules/linear.py:__init__:48 (4 samples, 0.74%)</title><rect x="898.3" y="277" width="8.8" height="15.0" fill="rgb(208,173,46)" rx="2" ry="2" />
+<text text-anchor="" x="901.29" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/matplotlib/collections.py:&lt;module&gt;:1988 (1 samples, 0.19%)</title><rect x="1126.4" y="293" width="2.2" height="15.0" fill="rgb(215,220,13)" rx="2" ry="2" />
+<text text-anchor="" x="1129.39" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/spatial/__init__.py:&lt;module&gt;:94 (1 samples, 0.19%)</title><rect x="1075.9" y="261" width="2.2" height="15.0" fill="rgb(225,156,12)" rx="2" ry="2" />
+<text text-anchor="" x="1078.95" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>/home/rverkuil/integration/integration/local/lib/python2.7/site-packages/scipy/spatial/__init__.py:&lt;module&gt;:97 (1 samples, 0.19%)</title><rect x="1080.3" y="261" width="2.2" height="15.0" fill="rgb(235,224,42)" rx="2" ry="2" />
+<text text-anchor="" x="1083.33" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+</svg>
