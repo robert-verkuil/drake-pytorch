@@ -51,9 +51,30 @@ def do_single_basic_pend_traj_opt(should_init):
         if cb_counter % 10 != 1:
             return
 
+        # Get the total cost
         all_costs = dircol.EvalBindings(dircol.GetAllCosts(), decision_vars)
-        all_constraints = dircol.EvalBindings(dircol.GetAllConstraints(), decision_vars)
-        print("total cost: {:.2f} | constraint {:.2f}".format(sum(all_costs), sum(all_constraints)))
+        # :all_constraints = dircol.EvalBindings(dircol.GetAllConstraints(), decision_vars)
+
+        # Get the total cost of the constraints.
+        # Additionally, the number and extent of any constraint violations.
+        violated_constraint_count = 0
+        violated_constraint_cost  = 0
+        constraint_cost           = 0
+        for constraint in dircol.GetAllConstraints():
+            val = dircol.EvalBinding(constraint, decision_vars)
+
+            nudge = 1e-1 # This much constraint violation is not considered bad...
+            lb = constraint.evaluator().lower_bound()
+            ub = constraint.evaluator().upper_bound()
+            good_lb = np.all( np.less_equal(lb, val+nudge) )
+            good_ub = np.all( np.greater_equal(ub, val-nudge) )
+            if not good_lb or not good_ub:
+                # print("val,lb,ub: ", val, lb, ub)
+                violated_constraint_count += 1
+                violated_constraint_cost += np.sum(val)
+            constraint_cost += np.sum(val)
+        print("total cost: {:.2f} | constraint {:.2f}, bad {}, {:.2f}".format(
+            sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
     dircol.AddVisualizationCallback(cb, np.array(dircol.decision_variables()))
     result = dircol.Solve()
     assert(result == SolutionResult.kSolutionFound)
