@@ -88,6 +88,8 @@ class MultipleTrajOpt(object):
         self.num_samples = num_samples
         self.ic_list = ic_list
         self.warm_start = warm_start
+        self.cbs = [] # This list will contain which visualization cb's to call
+        self.vis_cb_counter = 0
 
         # initial_conditions return a list of [num_trajectories x num_states] initial states
         # Use Russ's initial conditions, unless I pass in a function myself.
@@ -212,9 +214,7 @@ class MultipleTrajOpt(object):
             vis_ic_list = initial_conditions_Russ(self.num_trajectories)
         assert np.all( [len(ic) == self.num_states for ic in vis_ic_list] )
 
-        self.vis_cb_counter = 0
         def cb(huxT):
-            self.vis_cb_counter += 1
             print(" {}".format(self.vis_cb_counter), end='')
             if (self.vis_cb_counter) % 17 != 1:
                 return
@@ -248,13 +248,56 @@ class MultipleTrajOpt(object):
                 
             plt.show()
             
-        flat_h = np.hstack(elem.flatten() for elem in self.h)
-        flat_u = np.hstack(elem.flatten() for elem in self.u)
-        flat_x = np.hstack(elem.flatten() for elem in self.x)
-        self.prog.AddVisualizationCallback(cb, np.hstack([flat_h, flat_u, flat_x, self.T]))
+        self.cbs.append(cb)
+
+    def add_cost_and_constraint_printing_callback(self):
+        def cb(decision_vars):
+            # if self.vis_cb_counter % 2 != 1:
+            #     return
+
+            # Get the total cost
+            all_costs = self.prog.EvalBindings(self.prog.GetAllCosts(), decision_vars)
+
+            # Get the total cost of the constraints.
+            # Additionally, the number and extent of any constraint violations.
+            violated_constraint_count = 0
+            violated_constraint_cost  = 0
+            constraint_cost           = 0
+            for constraint in self.prog.GetAllConstraints():
+                val = self.prog.EvalBinding(constraint, decision_vars)
+
+                # Consider switching to DoCheckSatisfied if you can find the binding...
+                nudge = 1e-1 # This much constraint violation is not considered bad...
+                lb = constraint.evaluator().lower_bound()
+                ub = constraint.evaluator().upper_bound()
+                good_lb = np.all( np.less_equal(lb, val+nudge) )
+                good_ub = np.all( np.greater_equal(ub, val-nudge) )
+                if not good_lb or not good_ub:
+                    violated_constraint_count += 1
+                    violated_constraint_cost += np.sum(val)
+                constraint_cost += np.sum(val)
+            print("total cost: {: .2f} | \tconstraint {: .2f} \tbad {}, {: .2f}".format(
+                sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
+        self.cbs.append(cb)
 
     def Solve(self):
+        if self.cbs:
+            flat_h = np.hstack(elem.flatten() for elem in self.h)
+            flat_u = np.hstack(elem.flatten() for elem in self.u)
+            flat_x = np.hstack(elem.flatten() for elem in self.x)
+            print("there are {} cbs".format(len(self.cbs)))
+            def cb_all(huxT):
+                for i, cb in enumerate(self.cbs):
+                    self.vis_cb_counter +=1
+                    cb(huxT)
+            self.prog.AddVisualizationCallback(cb_all, np.hstack([flat_h, flat_u, flat_x, self.T]))
         return self.prog.Solve()
+
+    def PrintFinalCostAndConstraint(self):
+        sol_costs = np.hstack([self.prog.EvalBindingAtSolution(cost) for cost in self.prog.GetAllCosts()])
+        sol_constraints = np.hstack([self.prog.EvalBindingAtSolution(constraint) for constraint in self.prog.GetAllConstraints()])
+        print("TOTAL cost: {:.2f} | constraint {:.2f}".format(sum(sol_costs), sum(sol_constraints)))
+        print()
 
     def print_pi_divergence(self, ti):
         nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
