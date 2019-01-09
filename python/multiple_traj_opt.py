@@ -47,6 +47,7 @@ theta_bounds     = -math.pi, math.pi
 theta_dot_bounds = -5, 5
 def initial_conditions_Russ(num_trajectories):
     return np.array([(.8 + math.pi - .4*ti, 0.0) for ti in range(num_trajectories)])
+# TODO: use sqrt(num_trajectories) to determine n_theta/_dot
 def initial_conditions_grid(num_trajectories):
     # Have ti index into a grid over some state space bounds
     theta_range     = np.linspace(theta_bounds[0], theta_bounds[1], n_theta)
@@ -77,21 +78,23 @@ class MultipleTrajOpt(object):
     def __init__(self, 
                  expmt, 
                  num_trajectories, num_samples,
-                 ic_list=None):
+                 ic_list=None,
+                 warm_start=True):
         assert expmt == "pendulum"
         self.expmt = expmt
         self.num_inputs = 1
         self.num_states = 2
         self.num_trajectories = num_trajectories
         self.num_samples = num_samples
+        self.ic_list = ic_list
+        self.warm_start = warm_start
 
         # initial_conditions return a list of [num_trajectories x num_states] initial states
         # Use Russ's initial conditions, unless I pass in a function myself.
-        if ic_list is None:
-            ic_list = initial_conditions_Russ(self.num_trajectories)
-        assert len(ic_list) == self.num_trajectories
-        assert np.all( [len(ic) == self.num_states for ic in ic_list] )
-            # assert callable(ic_list)
+        if self.ic_list is None:
+            self.ic_list = initial_conditions_Russ(self.num_trajectories)
+        assert len(self.ic_list) == self.num_trajectories
+        assert np.all( [len(ic) == self.num_states for ic in self.ic_list] )
 
         plant = PendulumPlant()
         context = plant.CreateDefaultContext()
@@ -105,7 +108,7 @@ class MultipleTrajOpt(object):
         h = [];
         u = [];
         x = [];
-        xf = (math.pi, 0.)
+        xf = np.array([math.pi, 0.])
         for ti in range(num_trajectories):
             h.append(prog.NewContinuousVariables(1))
             prog.AddBoundingBoxConstraint(.01, .2, h[ti])
@@ -113,12 +116,20 @@ class MultipleTrajOpt(object):
             u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
             x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
 
-            x0 = ic_list[ti]
+            x0 = np.array(self.ic_list[ti]) # TODO: hopefully this isn't subtley bad...
             prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
 
-            nudge = np.array([.2, .2])
-            prog.AddBoundingBoxConstraint(xf-nudge, xf+nudge, x[ti][:,-1])
-            # prog.AddBoundingBoxConstraint(xf, xf, x[ti][:,-1])
+            # nudge = np.array([.2, .2])
+            # prog.AddBoundingBoxConstraint(xf-nudge, xf+nudge, x[ti][:,-1])
+            prog.AddBoundingBoxConstraint(xf, xf, x[ti][:,-1])
+
+            # Do optional warm start here
+            if self.warm_start:
+                prog.SetInitialGuess(h[ti], [(0.01+0.2)/2])
+                for i in range(num_samples):
+                    prog.SetInitialGuess(u[ti][:,i], [0.])
+                    x_interp = (xf-x0)*i/num_samples + x0
+                    prog.SetInitialGuess(x[ti][:,i], x_interp)
 
             for i in range(num_samples-1):
                 AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
@@ -193,12 +204,13 @@ class MultipleTrajOpt(object):
             #         self.prog.AddCost(lambda x: constraint(x)[0]**2, var_list)
 
         
-    def add_multiple_trajectories_visualization_callback(self, ic_list=None):
+    def add_multiple_trajectories_visualization_callback(self, vis_ic_list=None):
         # initial_conditions return a list of [<any> x num_states] initial states
         # Use Russ's initial conditions, unless I pass in a function myself.
-        if ic_list is None:
-            ic_list = initial_conditions_Russ(self.num_trajectories)
-        assert np.all( [len(ic) == self.num_states for ic in ic_list] )
+        self.vis_ic_list = vis_ic_list
+        if vis_ic_list is None:
+            vis_ic_list = initial_conditions_Russ(self.num_trajectories)
+        assert np.all( [len(ic) == self.num_states for ic in vis_ic_list] )
 
         self.vis_cb_counter = 0
         def cb(huxT):
@@ -228,7 +240,7 @@ class MultipleTrajOpt(object):
                 # 1) Visualize the trajectories
                 plot_trajectory(x_samples, "state_scatter", self.expmt, create_figure=False) 
 
-            for ic in ic_list:
+            for ic in vis_ic_list:
                 # 2) Then visualize what the policy would say to do from (possibly the same) initial conditions.
                 h_sol = (0.01+0.2)/2 # TODO: improve this hard coding?
                 _, pi_x_samples, _ = self.__rollout_policy_given_params(h_sol, T, ic)
@@ -264,22 +276,22 @@ class MultipleTrajOpt(object):
         x_samples = logger.data()
         return t_samples, x_samples, logger
 
-    def __rollout_policy_at_solution(self, ic=None):
-        if ic is None:
-            ic = self.prog.GetSolution(self.x[ti])[:,0]
-            h_sol = self.prog.GetSolution(self.h[ti])[0]
+    def __rollout_policy_at_solution(self, ti_or_ic=None):
+        if isinstance(ti_or_ic, int):
+            ic = self.prog.GetSolution(self.x[ti_or_ic])[:,0]
+            h_sol = self.prog.GetSolution(self.h[ti_or_ic])[0]
         else:
             h_sol = (0.01+0.2)/2
         params_list = self.prog.GetSolution(self.T)
         return self.__rollout_policy_given_params(h_sol, params_list, ic=ic)
 
-    def plot_policy(self, plot_type, ic=None):
-        _, x_samples, _ = __rollout_policy_at_solution(ic=ic)
+    def plot_policy(self, plot_type, ti_or_ic):
+        _, x_samples, _ = self.__rollout_policy_at_solution(ti_or_ic)
 
         plot_trajectory(x_samples, plot_type, expmt=self.expmt, create_figure=True)
 
-    def render_policy(self, ti, ic=None):
-        _, _, logger = __rollout_policy_at_solution(ic=ic)
+    def render_policy(self, ti_or_ic):
+        _, _, logger = self.__rollout_policy_at_solution(ti_or_ic)
 
         return render_trajectory(logger)
 
