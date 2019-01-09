@@ -39,12 +39,45 @@ def sin(x):
         return sym.sin(x)
     return math.sin(x)
 
+#########################################################
+# Big Batch of Initial Conditions
+#########################################################
+n_theta, n_theta_dot = (5, 3)
+theta_bounds     = -math.pi, math.pi
+theta_dot_bounds = -5, 5
+def initial_conditions_Russ(num_trajectories):
+    return np.array([(.8 + math.pi - .4*ti, 0.0) for ti in range(num_trajectories)])
+def initial_conditions_grid(num_trajectories):
+    # Have ti index into a grid over some state space bounds
+    theta_range     = np.linspace(theta_bounds[0], theta_bounds[1], n_theta)
+    theta_dot_range = np.linspace(theta_dot_bounds[0], theta_dot_bounds[1], n_theta_dot)
+    ret = []
+    for ti in range(num_trajectories):
+        r = int(ti / n_theta)
+        c = ti % n_theta
+        ret.append( (theta_range[c], theta_dot_range[r]) )
+    return ret
+def initial_conditions_random(num_trajectories):
+    # random state over some state-space bounds
+    ret = []
+    for ti in range(num_trajectories):
+        rand1, rand2 =  np.random.random(2)
+        theta     =  (theta_bounds[1] - theta_bounds[0]) * rand1 + theta_bounds[0]
+        theta_dot =  (theta_dot_bounds[1] - theta_dot_bounds[0]) * rand2 + theta_dot_bounds[0]
+        ret.append( (theta, theta_dot) )
+    return ret
+# intial_cond_dict = {
+#     "Russ": initial_conditions_Russ,
+#     "grid": initial_conditions_grid,
+#     "random": initial_conditions_random,
+# }
+
 class MultipleTrajOpt(object):
     # Currently only set up to make pendulum examples
     def __init__(self, 
                  expmt, 
                  num_trajectories, num_samples,
-                 initial_conditions=None):
+                 ic_list=None):
         assert expmt == "pendulum"
         self.expmt = expmt
         self.num_inputs = 1
@@ -52,10 +85,13 @@ class MultipleTrajOpt(object):
         self.num_trajectories = num_trajectories
         self.num_samples = num_samples
 
-        # initial_conditions maps (ti) -> [1xnum_states] initial state
-        if initial_conditions is not None:
-            initial_conditions = intial_cond_dict[initial_conditions]
-            assert callable(initial_conditions)
+        # initial_conditions return a list of [num_trajectories x num_states] initial states
+        # Use Russ's initial conditions, unless I pass in a function myself.
+        if ic_list is None:
+            ic_list = initial_conditions_Russ(self.num_trajectories)
+        assert len(ic_list) == self.num_trajectories
+        assert np.all( [len(ic) == self.num_states for ic in ic_list] )
+            # assert callable(ic_list)
 
         plant = PendulumPlant()
         context = plant.CreateDefaultContext()
@@ -77,12 +113,7 @@ class MultipleTrajOpt(object):
             u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
             x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
 
-            # Use Russ's initial conditions, unless I pass in a function myself.
-            if initial_conditions is None:
-                x0 = (.8 + math.pi - .4*ti, 0.0)    
-            else:
-                x0 = initial_conditions(ti)
-                assert len(x0) == 2 #TODO: undo this hardcoding.
+            x0 = ic_list[ti]
             prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
 
             nudge = np.array([.2, .2])
@@ -162,9 +193,12 @@ class MultipleTrajOpt(object):
             #         self.prog.AddCost(lambda x: constraint(x)[0]**2, var_list)
 
         
-    def add_multiple_trajectories_visualization_callback(self,
-            expmt,
-            initial_conditions=None):
+    def add_multiple_trajectories_visualization_callback(self, ic_list=None):
+        # initial_conditions return a list of [<any> x num_states] initial states
+        # Use Russ's initial conditions, unless I pass in a function myself.
+        if ic_list is None:
+            ic_list = initial_conditions_Russ(self.num_trajectories)
+        assert np.all( [len(ic) == self.num_states for ic in ic_list] )
 
         self.vis_cb_counter = 0
         def cb(huxT):
@@ -194,10 +228,10 @@ class MultipleTrajOpt(object):
                 # 1) Visualize the trajectories
                 plot_trajectory(x_samples, "state_scatter", self.expmt, create_figure=False) 
 
-                # 2) Then visualize what the policy would say to do from those initial conditions
-                if ti != 0: #TODO: remove this, by making wall-clock time of rolling out reasonable.
-                    continue
-                _, pi_x_samples, _ = self.__rollout_policy(h_sol, T)#, intial_conditions=initial_conditions)
+            for ic in ic_list:
+                # 2) Then visualize what the policy would say to do from (possibly the same) initial conditions.
+                h_sol = (0.01+0.2)/2 # TODO: improve this hard coding?
+                _, pi_x_samples, _ = self.__rollout_policy_given_params(h_sol, T, ic)
                 plot_trajectory(pi_x_samples, "state_scatter", self.expmt, create_figure=False, symbol=':') 
                 
             plt.show()
@@ -222,31 +256,30 @@ class MultipleTrajOpt(object):
             u_pi = NNInferenceHelper_double(nn, x_val)[0]
             print( "({: .2f})-({: .2f})= {: .2f}".format(u_val, u_pi, u_val - u_pi) )
 
-    def __rollout_policy(self, h_sol, params_list):
+    def __rollout_policy_given_params(self, h_sol, params_list, ic=None):
         nn_policy = create_nn_policy_system(self.kNetConstructor, params_list)
-#        if initial_conditions is None:
-#            inits = x[ti][:,0]           # Use the start of the corresponding trajectory.
-#        else:
-        # inits = initial_conditions(ti)  # Else do the user's selected inits.
-        simulator, _, logger = simulate_and_log_policy_system(nn_policy, self.expmt)#, initial_conditions=inits)
-        # TODO: overwrite h_sol here?
+        simulator, _, logger = simulate_and_log_policy_system(nn_policy, self.expmt, ic)
         simulator.StepTo(h_sol*self.num_samples)
         t_samples = logger.sample_times()
         x_samples = logger.data()
         return t_samples, x_samples, logger
 
-    def plot_policy(self, plot_type):#, initial_conditions=None):
-        h_sol = (0.01+0.2)/2 #TODO: Figure out a good way to set timestep for policy rollouts...
+    def __rollout_policy_at_solution(self, ic=None):
+        if ic is None:
+            ic = self.prog.GetSolution(self.x[ti])[:,0]
+            h_sol = self.prog.GetSolution(self.h[ti])[0]
+        else:
+            h_sol = (0.01+0.2)/2
         params_list = self.prog.GetSolution(self.T)
-        _, x_samples, _ = self.__rollout_policy(h_sol, params_list)#, initial_conditions=initial_conditions)
+        return self.__rollout_policy_given_params(h_sol, params_list, ic=ic)
+
+    def plot_policy(self, plot_type, ic=None):
+        _, x_samples, _ = __rollout_policy_at_solution(ic=ic)
 
         plot_trajectory(x_samples, plot_type, expmt=self.expmt, create_figure=True)
 
-    def render_policy(self, ti):
-        # initial_conditions = self.prog.GetSolution(self.x[ti])[:,0]
-        h_sol = self.prog.GetSolution(self.h[ti])[0]
-        params_list = self.prog.GetSolution(self.T)
-        _, _, logger = self.__rollout_policy(h_sol, params_list)#, initial_conditions=initial_conditions)
+    def render_policy(self, ti, ic=None):
+        _, _, logger = __rollout_policy_at_solution(ic=ic)
 
         return render_trajectory(logger)
 

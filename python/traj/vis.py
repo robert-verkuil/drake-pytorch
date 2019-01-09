@@ -98,7 +98,7 @@ def render_trajectory(x_trajectory_or_logger):
 # creates a simulator that can be used to visualize the policy.
 tree = None
 logger = None
-def simulate_and_log_policy_system(policy_system, expmt, initial_conditions=None):
+def simulate_and_log_policy_system(policy_system, expmt, ic=None):
     global tree
     global logger
     expmt_settings = {
@@ -161,9 +161,9 @@ def simulate_and_log_policy_system(policy_system, expmt, initial_conditions=None
     simulator.set_publish_every_time_step(False)
 
     state = simulator.get_mutable_context().get_mutable_continuous_state_vector()
-    if initial_conditions is None:
-        initial_conditions = settings['initial_state']
-    state.SetFromVector(initial_conditions)
+    if ic is None:
+        ic = settings['initial_state']
+    state.SetFromVector(ic)
 
     return simulator, tree, logger
 
