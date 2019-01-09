@@ -30,6 +30,32 @@ from traj.vis import (
     render_trajectory,
 )
 
+#########################################################
+# Benchmarking utils
+#########################################################
+import time
+current_milli_time = lambda: int(round(time.time() * 1000))
+mylog = []
+def start(name):
+    ret = {
+        "name": name,
+        "cat": "PERF",
+        "ph": "B",
+        "pid": 0,
+        #"tid": 22630,
+        "ts": current_milli_time()
+    }
+    mylog.append(ret)
+def end(name):
+    ret = {
+        "name": name,
+        "cat": "PERF",
+        "ph": "E",
+        "pid": 0,
+        #"tid": 22630,
+        "ts": current_milli_time()
+    }
+    mylog.append(ret)
 def cos(x):
     if isinstance(x, AutoDiffXd):
         return x.cos()
@@ -121,7 +147,7 @@ class MultipleTrajOpt(object):
         x = [];
         xf = np.array([math.pi, 0.])
         for ti in range(num_trajectories):
-            h.append(prog.NewContinuousVariables(1))
+            h.append(prog.NewContinuousVariables(1,'h'+str(ti)))
             prog.AddBoundingBoxConstraint(.01, .2, h[ti])
             # prog.AddQuadraticCost([1.], [0.], h[ti]) # Added by me, penalize long timesteps
             u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
@@ -163,6 +189,7 @@ class MultipleTrajOpt(object):
         self.h = h
         self.u = u
         self.x = x
+        self.T = []
 
     def add_nn_params(self,
                       kNetConstructor, 
@@ -233,8 +260,11 @@ class MultipleTrajOpt(object):
             num_u = self.num_trajectories*self.num_samples*self.num_inputs
             num_x = self.num_trajectories*self.num_samples*self.num_states
             h = huxT[                  : num_h            ].reshape((self.num_trajectories, 1))
-            u = huxT[num_h             : num_h+num_u      ].reshape((self.num_trajectories, self.num_inputs, self.num_samples))
-            x = huxT[num_h+num_u       : num_h+num_u+num_x].reshape((self.num_trajectories, self.num_states, self.num_samples))
+            u = huxT[num_h             : num_h+num_u      ].reshape((self.num_trajectories, self.num_samples, self.num_inputs))
+            x = huxT[num_h+num_u       : num_h+num_u+num_x].reshape((self.num_trajectories, self.num_samples, self.num_states))
+            # Switch the final two axes of u and x, so it's like our h, u, x, T arrays
+            u = np.swapaxes(u, 1, 2)
+            x = np.swapaxes(x, 1, 2)
             T = huxT[num_h+num_u+num_x :                  ]
 
             # Visualize the trajectories
@@ -249,11 +279,12 @@ class MultipleTrajOpt(object):
                 # 1) Visualize the trajectories
                 plot_trajectory(x_samples, "state_scatter", self.expmt, create_figure=False) 
 
-            for ic in vis_ic_list:
-                # 2) Then visualize what the policy would say to do from (possibly the same) initial conditions.
-                h_sol = (0.01+0.2)/2 # TODO: improve this hard coding?
-                _, pi_x_samples, _ = self.__rollout_policy_given_params(h_sol, T, ic)
-                plot_trajectory(pi_x_samples, "state_scatter", self.expmt, create_figure=False, symbol=':') 
+            if len(T) != 0:
+                for ic in vis_ic_list:
+                    # 2) Then visualize what the policy would say to do from (possibly the same) initial conditions.
+                    h_sol = (0.01+0.2)/2 # TODO: improve this hard coding?
+                    _, pi_x_samples, _ = self.__rollout_policy_given_params(h_sol, T, ic)
+                    plot_trajectory(pi_x_samples, "state_scatter", self.expmt, create_figure=False, symbol=':') 
                 
             plt.show()
             
@@ -282,18 +313,19 @@ class MultipleTrajOpt(object):
                 good_lb = np.all( np.less_equal(lb, val+nudge) )
                 good_ub = np.all( np.greater_equal(ub, val-nudge) )
                 if not good_lb or not good_ub:
+                    print("{} <= {} <= {}".format(lb, val, ub))
                     violated_constraint_count += 1
-                    violated_constraint_cost += np.sum(val)
-                constraint_cost += np.sum(val)
+                    violated_constraint_cost += np.sum(np.abs(val))
+                constraint_cost += np.sum(np.abs(val))
             print("total cost: {: .2f} | \tconstraint {: .2f} \tbad {}, {: .2f}".format(
                 sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
         self.cbs.append(cb)
 
     def Solve(self):
         if self.cbs:
-            flat_h = np.hstack(elem.flatten() for elem in self.h)
-            flat_u = np.hstack(elem.flatten() for elem in self.u)
-            flat_x = np.hstack(elem.flatten() for elem in self.x)
+            flat_h = np.hstack(elem.flatten() for elem in np.array(self.h).T)
+            flat_u = np.hstack(elem.flatten() for elem in np.array(self.u).T)
+            flat_x = np.hstack(elem.flatten() for elem in np.array(self.x).T)
             print("there are {} cbs".format(len(self.cbs)))
             def cb_all(huxT):
                 for i, cb in enumerate(self.cbs):
@@ -337,22 +369,40 @@ class MultipleTrajOpt(object):
         params_list = self.prog.GetSolution(self.T)
         return self.__rollout_policy_given_params(h_sol, params_list, ic=ic)
 
-    def plot_policy(self, plot_type, ti_or_ic):
+    def plot_policy(self, plot_type, ti_or_ic, create_figure=True):
         _, x_samples, _ = self.__rollout_policy_at_solution(ti_or_ic)
 
-        plot_trajectory(x_samples, plot_type, expmt=self.expmt, create_figure=True)
+        plot_trajectory(x_samples, plot_type, expmt=self.expmt, create_figure=create_figure)
+        
+
+    def plot_all_policies(self, plot_type, ti_or_ics=None):
+        if ti_or_ics is None:
+            ti_or_ics = list(range(self.num_trajectories))
+        plt.figure()
+        plt.title('Pendulum policy rollouts')
+        for ti_or_ic in ti_or_ics:
+            self.plot_policy(plot_type, ti_or_ic, create_figure=False)
 
     def render_policy(self, ti_or_ic):
         _, _, logger = self.__rollout_policy_at_solution(ti_or_ic)
 
         return render_trajectory(logger)
 
+#    def render_all_policies(self, ti_or_ics=None):
+#        if ti_or_ics is None:
+#            ti_or_ics = list(range(self.num_trajectories))
+#        ret = []
+#        for ti_or_ic in ti_or_ics:
+#            ret.append( self.render_policy(ti_or_ic) )
+#        return ret
+
     def get_trajectory_data(self, ti):
         h_sol = self.prog.GetSolution(self.h[ti])[0]
         breaks = [h_sol*i for i in range(self.num_samples)]
         knots = self.prog.GetSolution(self.x[ti])
         x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
-        t_samples = np.linspace(breaks[0], breaks[-1], 45)
+        # t_samples = np.linspace(breaks[0], breaks[-1], 45)
+        t_samples = np.linspace(breaks[0], breaks[-1], self.num_samples*3)
         x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
         return x_trajectory, t_samples, x_samples
 
@@ -365,11 +415,7 @@ class MultipleTrajOpt(object):
     def plot_all_trajectories(self, plot_type):
         plt.figure()
         plt.title('Pendulum trajectories')
-        plt.xlabel('theta')
-        plt.ylabel('theta_dot')
         for ti in range(self.num_trajectories):
-            _, _, x_samples = self.get_trajectory_data(ti)
-
             self.plot_single_trajectory(ti, plot_type, create_figure=False)
 
     # Visualize the result as a video.

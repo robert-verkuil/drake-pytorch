@@ -67,12 +67,12 @@ def plot_trajectory(x_samples, plot_type, expmt, create_figure=True, symbol='-')
     if create_figure:
         plt.figure()
         plt.title(plot_type)
-        if "tip" in plot_type:
-            plt.xlabel('x')
-            plt.ylabel('y')
-        elif "state" in plot_type:
-            plt.xlabel('theta')
-            plt.ylabel('theta_dot')
+    if "tip" in plot_type:
+        plt.xlabel('x')
+        plt.ylabel('y')
+    elif "state" in plot_type:
+        plt.xlabel('theta')
+        plt.ylabel('theta_dot')
 
     if "tip" in plot_type:
         coords = [state_to_tip_coord_fns[expmt](state) for state in x_samples.T]
