@@ -31,6 +31,8 @@ from underactuated import (
 from nn_system.NNSystem import NNSystem, NNSystem_ # How does this work????
 from traj.visualizer import PendulumVisualizer
 
+from IPython.display import HTML
+
 # The purpose of this file is to house a bunch of utilities for
 # visualizing SINGLE trajectories.  It should NOT know anything 
 # about multiple trajectory optimization problems.
@@ -92,7 +94,7 @@ def render_trajectory(x_trajectory_or_logger):
     vis = PendulumVisualizer()
     ani = vis.animate(x_trajectory_or_logger, repeat=True)
     plt.close(vis.fig)
-    return ani
+    return HTML(ani.to_html5_video())
 
 # Given a policy system, (e.g. created by FittedValueIteraton or nn_system.NNSystem(pytorch_net_object))
 # creates a simulator that can be used to visualize the policy.
