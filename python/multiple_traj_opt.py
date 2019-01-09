@@ -146,12 +146,27 @@ class MultipleTrajOpt(object):
         u = [];
         x = [];
         xf = np.array([math.pi, 0.])
+        # Declare the MathematicalProgram vars up front in a good order, so that 
+        # prog.decision_variables will be result of np.hstack(h.flatten(), u.flatten(), x.flatten(), T.flatten())
+        # for the following shapes:                          unfortunately, prog.decision_variables() will have these shapes:
+        #   h = (num_trajectories, 1)                       | h = (num_trajectories, 1)
+        #   u = (num_trajectories, num_inputs, num_samples) | u = (num_trajectories, num_samples, num_inputs)
+        #   x = (num_trajectories, num_states, num_samples) | x = (num_trajectories, num_samples, num_states)
+        #   T = (num_params)                                | T = (num_params)
         for ti in range(num_trajectories):
             h.append(prog.NewContinuousVariables(1,'h'+str(ti)))
+        for ti in range(num_trajectories):
+            u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
+        for ti in range(num_trajectories):
+            x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
+
+        # Add in constraints
+        for ti in range(num_trajectories):
+                #h.append(prog.NewContinuousVariables(1,'h'+str(ti)))
             prog.AddBoundingBoxConstraint(.01, .2, h[ti])
             # prog.AddQuadraticCost([1.], [0.], h[ti]) # Added by me, penalize long timesteps
-            u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
-            x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
+                #u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
+                #x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
 
             x0 = np.array(self.ic_list[ti]) # TODO: hopefully this isn't subtley bad...
             prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
@@ -262,7 +277,7 @@ class MultipleTrajOpt(object):
             h = huxT[                  : num_h            ].reshape((self.num_trajectories, 1))
             u = huxT[num_h             : num_h+num_u      ].reshape((self.num_trajectories, self.num_samples, self.num_inputs))
             x = huxT[num_h+num_u       : num_h+num_u+num_x].reshape((self.num_trajectories, self.num_samples, self.num_states))
-            # Switch the final two axes of u and x, so it's like our h, u, x, T arrays
+            # Swap last two axes here to get it into the format we're used to above
             u = np.swapaxes(u, 1, 2)
             x = np.swapaxes(x, 1, 2)
             T = huxT[num_h+num_u+num_x :                  ]
@@ -323,15 +338,11 @@ class MultipleTrajOpt(object):
 
     def Solve(self):
         if self.cbs:
-            flat_h = np.hstack(elem.flatten() for elem in np.array(self.h).T)
-            flat_u = np.hstack(elem.flatten() for elem in np.array(self.u).T)
-            flat_x = np.hstack(elem.flatten() for elem in np.array(self.x).T)
-            print("there are {} cbs".format(len(self.cbs)))
             def cb_all(huxT):
                 for i, cb in enumerate(self.cbs):
                     self.vis_cb_counter +=1
                     cb(huxT)
-            self.prog.AddVisualizationCallback(cb_all, np.hstack([flat_h, flat_u, flat_x, self.T]))
+            self.prog.AddVisualizationCallback(cb_all, self.prog.decision_variables())
         return self.prog.Solve()
 
     def PrintFinalCostAndConstraint(self):
