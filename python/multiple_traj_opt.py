@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import math
 import numpy as np
 
+
 # pydrake stuff
 from pydrake.all import (AutoDiffXd, Expression, Variable,
                      MathematicalProgram, SolverType, SolutionResult,
@@ -12,6 +13,9 @@ from pydrake.all import (AutoDiffXd, Expression, Variable,
                     )
 import pydrake.symbolic as sym
 from pydrake.examples.pendulum import (PendulumPlant)
+
+# Weirddddddd, apparently pydrake MUST be imported before torch???
+import torch
 
 # My stuff
 from nn_system.NNSystem import NNInferenceHelper_double
@@ -79,7 +83,8 @@ class MultipleTrajOpt(object):
                  expmt, 
                  num_trajectories, num_samples,
                  ic_list=None,
-                 warm_start=True):
+                 warm_start=True,
+                 seed=None):
         assert expmt == "pendulum"
         self.expmt = expmt
         self.num_inputs = 1
@@ -90,6 +95,10 @@ class MultipleTrajOpt(object):
         self.warm_start = warm_start
         self.cbs = [] # This list will contain which visualization cb's to call
         self.vis_cb_counter = 0
+        self.seed = seed
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            torch.manual_seed(self.seed)
 
         # initial_conditions return a list of [num_trajectories x num_states] initial states
         # Use Russ's initial conditions, unless I pass in a function myself.
