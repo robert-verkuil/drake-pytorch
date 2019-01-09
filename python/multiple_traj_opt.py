@@ -14,9 +14,11 @@ import pydrake.symbolic as sym
 from pydrake.examples.pendulum import (PendulumPlant)
 
 # My stuff
+from nn_system.NNSystem import NNInferenceHelper_double
 from nn_system.NNSystemHelper import (
     create_nn_policy_system,
     make_NN_constraint,
+    create_nn,
 )
 from traj.vis import (
     simulate_and_log_policy_system,
@@ -103,7 +105,7 @@ class MultipleTrajOpt(object):
         #prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)  # Derivative checking disabled. (otherwise it complains on the saturation)
         prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
 
-        # Save references, TODO: think about doing this right at the start?
+        # Save references
         self.prog = prog
         self.h = h
         self.u = u
@@ -165,49 +167,38 @@ class MultipleTrajOpt(object):
             initial_conditions=None):
 
         self.vis_cb_counter = 0
-        # Exposing the variables that the callback will need to bind to...
-        # TODO: is this needed?
-        kNetConstructor = self.kNetConstructor
-        num_inputs = self.num_inputs
-        num_states = self.num_states
-        num_trajectories = self.num_trajectories
-        num_samples = self.num_samples
         def cb(huxT):
-            # global vis_cb_counter
             self.vis_cb_counter += 1
             print(" {}".format(self.vis_cb_counter), end='')
             if (self.vis_cb_counter) % 17 != 1:
                 return
             
             # Unpack the serialized variables
-            num_h = num_trajectories
-            num_u = num_trajectories*num_samples*num_inputs
-            num_x = num_trajectories*num_samples*num_states
-            h = huxT[                  : num_h            ].reshape((num_trajectories, 1))
-            u = huxT[num_h             : num_h+num_u      ].reshape((num_trajectories, num_inputs, num_samples))
-            x = huxT[num_h+num_u       : num_h+num_u+num_x].reshape((num_trajectories, num_states, num_samples))
+            num_h = self.num_trajectories
+            num_u = self.num_trajectories*self.num_samples*self.num_inputs
+            num_x = self.num_trajectories*self.num_samples*self.num_states
+            h = huxT[                  : num_h            ].reshape((self.num_trajectories, 1))
+            u = huxT[num_h             : num_h+num_u      ].reshape((self.num_trajectories, self.num_inputs, self.num_samples))
+            x = huxT[num_h+num_u       : num_h+num_u+num_x].reshape((self.num_trajectories, self.num_states, self.num_samples))
             T = huxT[num_h+num_u+num_x :                  ]
 
             # Visualize the trajectories
-            for ti in range(num_trajectories):
+            for ti in range(self.num_trajectories):
                 h_sol = h[ti][0]
-                breaks = [h_sol*i for i in range(num_samples)]
+                breaks = [h_sol*i for i in range(self.num_samples)]
                 knots = x[ti]
                 x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
-                t_samples = np.linspace(breaks[0], breaks[-1], num_samples*3)
+                t_samples = np.linspace(breaks[0], breaks[-1], self.num_samples*3)
                 x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
 
                 # 1) Visualize the trajectories
                 plot_trajectory(x_samples, "state_scatter", self.expmt, create_figure=False) 
 
                 # 2) Then visualize what the policy would say to do from those initial conditions
-                if ti != 0: #TOOD: remove this!!!
+                if ti != 0: #TODO: remove this, by making wall-clock time of rolling out reasonable.
                     continue
-                _, x_samples, _ = self.__rollout_policy(h_sol, T)#, intial_conditions=initial_conditions)
-                #TODO: replace the below with a call to plot_trajectory("state_scatter")
-                plt.plot(x_samples[0,:], x_samples[1,:], ':')
-                plt.plot(x_samples[0,0], x_samples[1,0], 'go')
-                plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
+                _, pi_x_samples, _ = self.__rollout_policy(h_sol, T)#, intial_conditions=initial_conditions)
+                plot_trajectory(pi_x_samples, "state_scatter", self.expmt, create_figure=False, symbol=':') 
                 
             plt.show()
             
@@ -220,13 +211,10 @@ class MultipleTrajOpt(object):
         return self.prog.Solve()
 
     def print_pi_divergence(self, ti):
-        from nn_system.NNSystem import NNInferenceHelper_double
-        from nn_system.NNSystemHelper import create_nn
-
-        ti = 0
         nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
         u_vals = self.prog.GetSolution(self.u[ti])
         x_vals = self.prog.GetSolution(self.x[ti])
+
         print("u_val-Pi(x_val)= diff")
         for i in range(self.num_samples):
             u_val = u_vals[0,i]
@@ -247,7 +235,6 @@ class MultipleTrajOpt(object):
         x_samples = logger.data()
         return t_samples, x_samples, logger
 
-    # TODO: add ability to see policy graphs in state and physical space!
     def plot_policy(self, plot_type):#, initial_conditions=None):
         h_sol = (0.01+0.2)/2 #TODO: Figure out a good way to set timestep for policy rollouts...
         params_list = self.prog.GetSolution(self.T)
@@ -263,7 +250,6 @@ class MultipleTrajOpt(object):
 
         return render_trajectory(logger)
 
-    # TODO: have this be more intelligent!
     def get_trajectory_data(self, ti):
         h_sol = self.prog.GetSolution(self.h[ti])[0]
         breaks = [h_sol*i for i in range(self.num_samples)]
@@ -273,8 +259,8 @@ class MultipleTrajOpt(object):
         x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
         return x_trajectory, t_samples, x_samples
 
+    # Visualize with a static arrows plot.
     def plot_single_trajectory(self, ti, plot_type, create_figure=True):
-        # Visualize with a static arrows plot.
         _, _, x_samples = self.get_trajectory_data(ti)
 
         plot_trajectory(x_samples, plot_type, expmt=self.expmt, create_figure=create_figure)
@@ -288,13 +274,10 @@ class MultipleTrajOpt(object):
             _, _, x_samples = self.get_trajectory_data(ti)
 
             self.plot_single_trajectory(ti, plot_type, create_figure=False)
-            # plt.plot(x_samples[0,:], x_samples[1,:]) # TODO: remove this stuff
-            # plt.plot(x_samples[0,0], x_samples[1,0],   'go')
-            # plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
 
+    # Visualize the result as a video.
     def render_single_trajectory(self, ti):
         from traj.visualizer import PendulumVisualizer
-        # Visualize the result as a video.
         x_trajectory, _, _ = self.get_trajectory_data(ti)
         
         return render_trajectory(x_trajectory)

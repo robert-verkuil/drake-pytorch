@@ -59,7 +59,7 @@ state_to_tip_coord_fns = {
 }
 # This function can either plot the (x,y) of the tip of the pendulum, or the 
 # (theta, theta_dot) in the actual state space, with a scatter or quiver plot.
-def plot_trajectory(x_samples, plot_type, expmt, create_figure=True):
+def plot_trajectory(x_samples, plot_type, expmt, create_figure=True, symbol='-'):
     assert expmt in state_to_tip_coord_fns.keys()
     assert plot_type in ("tip_scatter", "tip_quiver", "state_scatter", "state_quiver")
     if create_figure:
@@ -79,7 +79,7 @@ def plot_trajectory(x_samples, plot_type, expmt, create_figure=True):
 
     x, y = zip(*coords)
     if "scatter" in plot_type:
-        plt.plot(x, y, '-o')
+        plt.plot(x, y, symbol+'o')
     elif "quiver" in plot_type:
         x = np.array(x)
         y = np.array(y)
