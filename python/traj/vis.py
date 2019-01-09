@@ -29,24 +29,11 @@ from underactuated import (
 )
 
 from nn_system.NNSystem import NNSystem, NNSystem_ # How does this work????
+from traj.visualizer import PendulumVisualizer
 
-
-def plot_multiple_dircol_trajectories(prog, h, u, x, num_trajectories, num_samples):
-    plt.title('Pendulum trajectories')
-    plt.xlabel('theta')
-    plt.ylabel('theta_dot')
-    for ti in range(num_trajectories):
-        h_sol = prog.GetSolution(h[ti])[0]    
-        breaks = [h_sol*i for i in range(num_samples)]
-        knots = prog.GetSolution(x[ti])
-        x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
-        t_samples = np.linspace(breaks[0], breaks[-1], 3*num_samples)
-        x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
-        plt.plot(x_samples[0,:], x_samples[1,:])
-        plt.plot(x_samples[0,0], x_samples[1,0],   'go')
-        plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
-
-
+# The purpose of this file is to house a bunch of utilities for
+# visualizing SINGLE trajectories.  It should NOT know anything 
+# about multiple trajectory optimization problems.
 
 def state_to_tip_coord_pendulum(state_vec):
     # State: (x, theta, x_dot, theta_dot)
@@ -70,47 +57,42 @@ state_to_tip_coord_fns = {
     "cartpole": state_to_tip_coord_cartpole,
     "acrobot": state_to_tip_coord_acrobot,
 }
-
-
-def visualize_trajectory(sample_times, values, expmt, create_figure=True):
+# This function can either plot the (x,y) of the tip of the pendulum, or the 
+# (theta, theta_dot) in the actual state space, with a scatter or quiver plot.
+def plot_trajectory(x_samples, plot_type, expmt, create_figure=True):
     assert expmt in state_to_tip_coord_fns.keys()
+    assert plot_type in ("tip_scatter", "tip_quiver", "state_scatter", "state_quiver")
     if create_figure:
         plt.figure()
-        plt.title('Tip trajectories')
-        plt.xlabel('x')
-        plt.ylabel('y')
+        plt.title(plot_type)
+        if "tip" in plot_type:
+            plt.xlabel('x')
+            plt.ylabel('y')
+        elif "state" in plot_type:
+            plt.xlabel('theta')
+            plt.ylabel('theta_dot')
 
-    coords = [state_to_tip_coord_fns[expmt](state) for state in values.T]
+    if "tip" in plot_type:
+        coords = [state_to_tip_coord_fns[expmt](state) for state in x_samples.T]
+    elif "state" in plot_type:
+        coords = [state for state in x_samples.T]
+
     x, y = zip(*coords)
-    # plt.plot(x, y, '-o', label=vis_cb_counter)
-    x = np.array(x)
-    y = np.array(y)
-    plt.quiver(x[:-1], y[:-1], x[1:]-x[:-1], y[1:]-y[:-1], scale_units='xy', angles='xy', scale=1)
+    if "scatter" in plot_type:
+        plt.plot(x, y, '-o')
+    elif "quiver" in plot_type:
+        x = np.array(x)
+        y = np.array(y)
+        plt.quiver(x[:-1], y[:-1], x[1:]-x[:-1], y[1:]-y[:-1], scale_units='xy', angles='xy', scale=1)
     plt.plot(x[0], y[0], 'go')
     plt.plot(x[-1], y[-1], 'ro')
 
-# Get rid of need for global vars here, if possible?
-vis_cb_counter = 0
-def add_visualization_callback(prog, expmt):
-    assert expmt in state_to_tip_coord_fns.keys()
-
-    plt.figure()
-    plt.title('Tip trajectories')
-    plt.xlabel('x')
-    plt.ylabel('y')
-
-    def MyVisualization(sample_times, values):
-        global vis_cb_counter
-
-        vis_cb_counter += 1
-        if vis_cb_counter % 50 != 0:
-            return
-        
-        visualize_trajectory(sample_times, values, expmt, create_figure=False)
-
-    print(id(dircol))
-    prog.AddStateTrajectoryCallback(MyVisualization)
-
+# Visualize the result as a video.
+def render_trajectory(x_trajectory_or_logger):
+    vis = PendulumVisualizer()
+    ani = vis.animate(x_trajectory_or_logger, repeat=True)
+    plt.close(vis.fig)
+    return ani
 
 # Given a policy system, (e.g. created by FittedValueIteraton or nn_system.NNSystem(pytorch_net_object))
 # creates a simulator that can be used to visualize the policy.
@@ -186,83 +168,33 @@ def simulate_and_log_policy_system(policy_system, expmt, initial_conditions=None
     return simulator, tree, logger
 
 
-def create_nn_policy_system(kNetConstructor, params_list):
-    # Construct a model with params T
-    net = kNetConstructor()
-    params_loaded = 0
-    for param in net.parameters():
-        param_slice = np.array([params_list[i] for i in range(params_loaded, params_loaded+param.data.nelement())])
-        param.data = torch.from_numpy(param_slice.reshape(list(param.data.size())))
-        params_loaded += param.data.nelement() 
-
-    nn_policy = NNSystem(pytorch_nn_object=net)
-    return nn_policy
 
 
-vis_cb_counter = 0
-def add_multiple_trajectories_visualization_callback(
-        prog, h, u, x, T, 
-        num_trajectories, num_samples, 
-        kNetConstructor, 
-        expmt,
-        initial_conditions=None):
-    num_inputs = len(u[0])
-    num_states = len(x[0])
-    print(num_inputs, num_states)
 
-    def cb(huxT):
-        global vis_cb_counter
-        vis_cb_counter += 1
-        print(vis_cb_counter, end='')
-        # if (vis_cb_counter+1) % 20 != 0:
-        if (vis_cb_counter) % 17 != 1:
-            return
-        
-        # Unpack the serialized variables
-        num_h = num_trajectories
-        num_u = num_trajectories*num_samples*num_inputs
-        num_x = num_trajectories*num_samples*num_states
+##########################################################
+# OLD STUFF BELOW HERE
+##########################################################
 
-        cb_h = huxT[:num_trajectories].reshape((num_trajectories, 1))
-        cb_u = huxT[num_h:num_h+num_u].reshape((num_trajectories, num_inputs, num_samples))
-        cb_x = huxT[num_h+num_u:num_h+num_u+num_x].reshape((num_trajectories, num_states, num_samples))
-        cb_T = huxT[num_h+num_u+num_x:]
 
-        # Visualize the trajectories
-        for ti in range(num_trajectories):
-            h_sol = cb_h[ti][0]
-            breaks = [h_sol*i for i in range(num_samples)]
-            knots = cb_x[ti]
-            x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
-            t_samples = np.linspace(breaks[0], breaks[-1], num_samples*3)
-            x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
-
-            # 1) Visualize the trajectories
-            plt.plot(x_samples[0,:],  x_samples[1,:])
-            plt.plot(x_samples[0,0],  x_samples[1,0],  'go')
-            plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
-
-            # 2) Then visualize what the policy would say to do from those initial conditions
-            if ti != 0: #TOOD: remove this!!!
-                continue
-            nn_policy = create_nn_policy_system(kNetConstructor, cb_T)
-            if initial_conditions is None:
-                inits = cb_x[ti][:,0]           # Use the start of the corresponding trajectory.
-            else:
-                inits = initial_conditions(ti)  # Else do the user's selected inits.
-            simulator, _, logger = simulate_and_log_policy_system(nn_policy, expmt, initial_conditions=inits)
-            # TODO: overwrite h_sol here?
-            simulator.StepTo(h_sol*num_samples)
-            t_samples = logger.sample_times()
-            x_samples = logger.data()
-            plt.plot(x_samples[0,:], x_samples[1,:], ':')
-            plt.plot(x_samples[0,0], x_samples[1,0], 'go')
-            plt.plot(x_samples[0,-1], x_samples[1,-1], 'ro')
-            
-        plt.show()
-        
-    flat_h = np.hstack(elem.flatten() for elem in h)
-    flat_u = np.hstack(elem.flatten() for elem in u)
-    flat_x = np.hstack(elem.flatten() for elem in x)
-    prog.AddVisualizationCallback(cb, np.hstack([flat_h, flat_u, flat_x, T]))
+# # Get rid of need for global vars here, if possible?
+# vis_cb_counter = 0
+# def add_visualization_callback(prog, expmt):
+#     assert expmt in state_to_tip_coord_fns.keys()
+# 
+#     plt.figure()
+#     plt.title('Tip trajectories')
+#     plt.xlabel('x')
+#     plt.ylabel('y')
+# 
+#     def MyVisualization(sample_times, values):
+#         global vis_cb_counter
+# 
+#         vis_cb_counter += 1
+#         if vis_cb_counter % 50 != 0:
+#             return
+#         
+#         visualize_trajectory(sample_times, values, expmt, create_figure=False)
+# 
+#     print(id(dircol))
+#     prog.AddStateTrajectoryCallback(MyVisualization)
 
