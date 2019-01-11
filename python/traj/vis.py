@@ -81,7 +81,7 @@ def plot_trajectory(x_samples, plot_type, expmt, create_figure=True, symbol='-')
 
     x, y = zip(*coords)
     if "scatter" in plot_type:
-        plt.plot(x, y, symbol+'o')
+        plt.plot(x, y, symbol+'')
     elif "quiver" in plot_type:
         x = np.array(x)
         y = np.array(y)
@@ -146,7 +146,9 @@ def simulate_and_log_policy_system(policy_system, expmt, ic=None):
             output[:] = input
             twoPI = 2.*math.pi
             for idx in settings['twoPI_boundary_condition_state_idxs']:
-                output[idx] = output[idx] - twoPI * math.floor(output[idx] / twoPI)
+                # output[idx] += math.pi
+                output[idx] = output[idx]# - twoPI * math.floor(output[idx] / twoPI)
+                # output[idx] -= math.pi
 
     wrap = builder.AddSystem(WrapTheta())
     builder.Connect(plant_system.get_output_port(0), wrap.get_input_port(0))

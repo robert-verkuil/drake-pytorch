@@ -72,14 +72,15 @@ def sin(x):
 #########################################################
 # Big Batch of Initial Conditions
 #########################################################
-n_theta, n_theta_dot = (5, 3)
-theta_bounds     = -math.pi, math.pi
-theta_dot_bounds = -5, 5
+theta_bounds     = 0, math.pi
+theta_dot_bounds = -5., 5.
 def initial_conditions_Russ(num_trajectories):
     return np.array([(.8 + math.pi - .4*ti, 0.0) for ti in range(num_trajectories)])
 # TODO: use sqrt(num_trajectories) to determine n_theta/_dot
-def initial_conditions_grid(num_trajectories):
+def initial_conditions_grid(num_trajectories, theta_bounds=theta_bounds, theta_dot_bounds=theta_dot_bounds):
     # Have ti index into a grid over some state space bounds
+    sqrt = int(math.sqrt(num_trajectories))#+1
+    n_theta, n_theta_dot = (sqrt, sqrt)
     theta_range     = np.linspace(theta_bounds[0], theta_bounds[1], n_theta)
     theta_dot_range = np.linspace(theta_dot_bounds[0], theta_dot_bounds[1], n_theta_dot)
     ret = []
@@ -108,6 +109,7 @@ class MultipleTrajOpt(object):
     def __init__(self, 
                  expmt, 
                  num_trajectories, num_samples,
+                 kMinimumTimeStep, kMaximumTimeStep,
                  ic_list=None,
                  warm_start=True,
                  seed=None):
@@ -162,11 +164,8 @@ class MultipleTrajOpt(object):
 
         # Add in constraints
         for ti in range(num_trajectories):
-                #h.append(prog.NewContinuousVariables(1,'h'+str(ti)))
-            prog.AddBoundingBoxConstraint(.01, .2, h[ti])
+            prog.AddBoundingBoxConstraint(kMinimumTimeStep, kMaximumTimeStep, h[ti])
             # prog.AddQuadraticCost([1.], [0.], h[ti]) # Added by me, penalize long timesteps
-                #u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
-                #x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
 
             x0 = np.array(self.ic_list[ti]) # TODO: hopefully this isn't subtley bad...
             prog.AddBoundingBoxConstraint(x0, x0, x[ti][:,0]) 
@@ -177,19 +176,21 @@ class MultipleTrajOpt(object):
 
             # Do optional warm start here
             if self.warm_start:
-                prog.SetInitialGuess(h[ti], [(0.01+0.2)/2])
+                prog.SetInitialGuess(h[ti], [(kMinimumTimeStep+kMaximumTimeStep)/2])
                 for i in range(num_samples):
                     prog.SetInitialGuess(u[ti][:,i], [0.])
                     x_interp = (xf-x0)*i/num_samples + x0
                     prog.SetInitialGuess(x[ti][:,i], x_interp)
+                    # prog.SetInitialGuess(u[ti][:,i], np.array(1.0))
 
             for i in range(num_samples-1):
                 AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
 
             for i in range(num_samples):
-                prog.AddQuadraticCost([1.], [0.], u[ti][:,i])
+                prog.AddQuadraticCost([10.], [0.], u[ti][:,i])
+                kTorqueLimit = 8
+                prog.AddBoundingBoxConstraint([-kTorqueLimit], [kTorqueLimit], u[ti][:,i])
                 # prog.AddConstraint(control, [0.], [0.], np.hstack([x[ti][:,i], u[ti][:,i], K.flatten()]))
-                # prog.AddBoundingBoxConstraint([-3.], [3.], u[ti][:,i])
                 # prog.AddConstraint(u[ti][0,i] == (3.*sym.tanh(K.dot(control_basis(x[ti][:,i]))[0])))  # u = 3*tanh(K * m(x))
                 
             # prog.AddCost(final_cost, x[ti][:,-1])
@@ -197,7 +198,7 @@ class MultipleTrajOpt(object):
 
         # Setting solver options
         #prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)  # Derivative checking disabled. (otherwise it complains on the saturation)
-        prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
+        #prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
 
         # Save references
         self.prog = prog
@@ -208,9 +209,9 @@ class MultipleTrajOpt(object):
 
     def add_nn_params(self,
                       kNetConstructor, 
+                      use_constraint=True, cost_factor=None,
                       initialize_params=True, 
-                      reg_type="No", 
-                      enable_constraint=True):
+                      reg_type="No"):
         self.kNetConstructor = kNetConstructor
 
         # Determine num_params and add them to the prog.
@@ -237,27 +238,30 @@ class MultipleTrajOpt(object):
         elif reg_type == "L1":
             def L1Cost(T):
                 return sum([t**2 for t in T])
-            self.prog.AddCost(L1Cost, T)
+            self.prog.AddCost(L1Cost, self.T)
         elif reg_type == "L2":
-            self.prog.AddQuadraticCost(np.eye(len(T)), [0.]*len(T), T)
+            self.prog.AddQuadraticCost(np.eye(len(self.T)), [0.]*len(self.T), self.T)
 
 
-        if enable_constraint:
-            # Add the neural network constraint to all time steps
-            for ti in range(self.num_trajectories):
-                for i in range(self.num_samples):
-                    u_ti = self.u[ti][0,i]
-                    x_ti = self.x[ti][:,i]
-                    # Only one output value, so let's have lb and ub of just size one!
-                    constraint = make_NN_constraint(self.kNetConstructor, self.num_inputs, self.num_states, self.num_params)
-                    lb         = np.array([-.1])
-                    ub         = np.array([.1])
-                    var_list   = np.hstack((u_ti, x_ti, self.T))
+        # Add the neural network constraint to all time steps
+        for ti in range(self.num_trajectories):
+            for i in range(self.num_samples):
+                u_ti = self.u[ti][0,i]
+                x_ti = self.x[ti][:,i]
+                # Only one output value, so let's have lb and ub of just size one!
+                constraint = make_NN_constraint(self.kNetConstructor, self.num_inputs, self.num_states, self.num_params)
+                lb         = np.array([-.0001])
+                ub         = np.array([.0001])
+                var_list   = np.hstack((u_ti, x_ti, self.T))
+                if use_constraint:
+                    print("using constraint!")
                     self.prog.AddConstraint(constraint, lb, ub, var_list)
-            #         self.prog.AddCost(lambda x: constraint(x)[0]**2, var_list)
+                if cost_factor is not None:
+                    print("using cost factor: ",  cost_factor)
+                    self.prog.AddCost(lambda x: cost_factor*constraint(x)[0]**2, var_list)
 
         
-    def add_multiple_trajectories_visualization_callback(self, vis_ic_list=None):
+    def add_multiple_trajectories_visualization_callback(self, every_nth, vis_ic_list=None):
         # initial_conditions return a list of [<any> x num_states] initial states
         # Use Russ's initial conditions, unless I pass in a function myself.
         self.vis_ic_list = vis_ic_list
@@ -267,7 +271,7 @@ class MultipleTrajOpt(object):
 
         def cb(huxT):
             print(" {}".format(self.vis_cb_counter), end='')
-            if (self.vis_cb_counter) % 17 != 1:
+            if (self.vis_cb_counter) % every_nth != 0:
                 return
             
             # Unpack the serialized variables
@@ -285,6 +289,9 @@ class MultipleTrajOpt(object):
             # Visualize the trajectories
             for ti in range(self.num_trajectories):
                 h_sol = h[ti][0]
+                if h_sol <= 0:
+                    print("bad h_sol")
+                    continue
                 breaks = [h_sol*i for i in range(self.num_samples)]
                 knots = x[ti]
                 x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
@@ -305,10 +312,10 @@ class MultipleTrajOpt(object):
             
         self.cbs.append(cb)
 
-    def add_cost_and_constraint_printing_callback(self):
+    def add_cost_and_constraint_printing_callback(self, every_nth):
         def cb(decision_vars):
-            # if self.vis_cb_counter % 2 != 1:
-            #     return
+            if (self.vis_cb_counter) % every_nth != 0:
+                return
 
             # Get the total cost
             all_costs = self.prog.EvalBindings(self.prog.GetAllCosts(), decision_vars)
@@ -328,7 +335,7 @@ class MultipleTrajOpt(object):
                 good_lb = np.all( np.less_equal(lb, val+nudge) )
                 good_ub = np.all( np.greater_equal(ub, val-nudge) )
                 if not good_lb or not good_ub:
-                    print("{} <= {} <= {}".format(lb, val, ub))
+                    # print("{} <= {} <= {}".format(lb, val, ub))
                     violated_constraint_count += 1
                     violated_constraint_cost += np.sum(np.abs(val))
                 constraint_cost += np.sum(np.abs(val))
@@ -340,10 +347,14 @@ class MultipleTrajOpt(object):
         if self.cbs:
             def cb_all(huxT):
                 for i, cb in enumerate(self.cbs):
-                    self.vis_cb_counter +=1
                     cb(huxT)
+                self.vis_cb_counter +=1
             self.prog.AddVisualizationCallback(cb_all, self.prog.decision_variables())
-        return self.prog.Solve()
+        start = time.time()
+        result = self.prog.Solve()
+        dur = time.time() - start
+        print("TOTAL ELAPSED TIME: {}".format(dur))
+        return result
 
     def PrintFinalCostAndConstraint(self):
         sol_costs = np.hstack([self.prog.EvalBindingAtSolution(cost) for cost in self.prog.GetAllCosts()])
@@ -366,7 +377,18 @@ class MultipleTrajOpt(object):
     def __rollout_policy_given_params(self, h_sol, params_list, ic=None):
         nn_policy = create_nn_policy_system(self.kNetConstructor, params_list)
         simulator, _, logger = simulate_and_log_policy_system(nn_policy, self.expmt, ic)
-        simulator.StepTo(h_sol*self.num_samples)
+        # simulator.get_integrator().set_target_accuracy(1e-1)
+
+        WALLCLOCK_TIME_LIMIT = 6
+        start = time.time()
+        while simulator.get_context().get_time() < h_sol*self.num_samples:
+            if time.time() - start > WALLCLOCK_TIME_LIMIT:
+                print("quit simulation early at {}/{} due to exceeding time limit".format(
+                    simulator.get_context().get_time(), h_sol*self.num_samples))
+                break
+            simulator.StepTo(simulator.get_context().get_time()+0.001)
+        # simulator.StepTo(h_sol*self.num_samples)
+
         t_samples = logger.sample_times()
         x_samples = logger.data()
         return t_samples, x_samples, logger
@@ -376,6 +398,7 @@ class MultipleTrajOpt(object):
             ic = self.prog.GetSolution(self.x[ti_or_ic])[:,0]
             h_sol = self.prog.GetSolution(self.h[ti_or_ic])[0]
         else:
+            ic = ti_or_ic
             h_sol = (0.01+0.2)/2
         params_list = self.prog.GetSolution(self.T)
         return self.__rollout_policy_given_params(h_sol, params_list, ic=ic)
@@ -389,10 +412,12 @@ class MultipleTrajOpt(object):
     def plot_all_policies(self, plot_type, ti_or_ics=None):
         if ti_or_ics is None:
             ti_or_ics = list(range(self.num_trajectories))
-        plt.figure()
+        ax = plt.figure()
         plt.title('Pendulum policy rollouts')
         for ti_or_ic in ti_or_ics:
             self.plot_policy(plot_type, ti_or_ic, create_figure=False)
+        plt.xlim((-math.pi*1.5, math.pi*1.5))
+        plt.ylim((-7, 7))
 
     def render_policy(self, ti_or_ic):
         _, _, logger = self.__rollout_policy_at_solution(ti_or_ic)
@@ -413,7 +438,7 @@ class MultipleTrajOpt(object):
         knots = self.prog.GetSolution(self.x[ti])
         x_trajectory = PiecewisePolynomial.Cubic(breaks, knots, False)
         # t_samples = np.linspace(breaks[0], breaks[-1], 45)
-        t_samples = np.linspace(breaks[0], breaks[-1], self.num_samples*3)
+        t_samples = np.linspace(breaks[0], breaks[-1], 100)
         x_samples = np.hstack([x_trajectory.value(t) for t in t_samples])
         return x_trajectory, t_samples, x_samples
 
