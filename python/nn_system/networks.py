@@ -51,12 +51,11 @@ class MLPSMALL(nn.Module):
         return x
 
 class MLP(nn.Module):
-    def __init__(self, n_inputs=4, layer_norm=False):
+    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False):
         super(MLP, self).__init__()
         self.n_inputs = n_inputs
         self.layer_norm = layer_norm
 
-        h_sz = 16
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
         self.tanh1 = torch.tanh

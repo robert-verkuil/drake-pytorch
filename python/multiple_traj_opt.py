@@ -104,6 +104,102 @@ def initial_conditions_random(num_trajectories):
 #     "random": initial_conditions_random,
 # }
 
+
+def make_mto(num_trajectories=16,
+             num_samples=16,
+             kMinimumTimeStep=0.2,
+             kMaximumTimeStep=0.5,
+             ic_list=initial_conditions_grid(num_trajectories),
+             warm_start=True,
+             seed=1338,
+             kNetConstructor=lambda: FCBIG(2),
+             use_constraint=True,
+             cost_factor=None,
+             initialize_params=True,
+             reg_type="No",
+             vis_cb_every_nth=None,
+             vis_cb_display_rollouts=False,
+             cost_cb_every_nth=None,
+             snopt_overrides=[]):
+
+    # ic_list = None
+    # ic_list = [(0., 0.)]
+    # ic_list = np.array([(0. + .1*ti, 0.0) for ti in range(num_trajectories)])
+    # ic_list = initial_conditions_grid(num_trajectories)
+    # seed = 1776
+    # seed = None
+    # seed = np.random.randint(0, 2000); print("seed: {}".format(seed))
+    # seed = 1338
+    mto = MultipleTrajOpt("pendulum",
+                          num_trajectories, 
+                          num_samples,
+                          kMinimumTimeStep,
+                          kMaximumTimeStep,
+                          ic_list=ic_list,
+                          warm_start=warm_start,
+                          seed=seed)
+
+    ###############################################
+    # Add a neural network!
+    ###############################################
+    # kNetConstructor = None
+    # kNetConstructor = lambda: FC(2)
+    # kNetConstructor = lambda: FCBIG(2)
+    # kNetConstructor = lambda: MLPSMALL(2)
+    # kNetConstructor = lambda: MLP(2)
+    # reg_type = "No"
+    # reg_type = "L1"
+    # reg_type = "L2"
+    if kNetConstructor is not None:
+        mto.add_nn_params(kNetConstructor,
+                          use_constraint    = use_constraint,
+                          cost_factor       = cost_factor,
+                          initialize_params = initialize_params, 
+                          reg_type          = reg_type)
+
+        
+    if vis_cb_every_nth is not None:
+        if vis_cb_display_rollouts:
+            mto.add_multiple_trajectories_visualization_callback(vis_call_back_every_nth, vis_ic_list=None)
+        else:
+            mto.add_multiple_trajectories_visualization_callback(vis_call_back_every_nth, vis_ic_list=[])
+    if cost_cb_every_nth is not None:
+        mto.add_cost_and_constraint_printing_callback(cost_cb_every_nth)
+    
+    # Add in some SNOPT settings changes here!!!
+    # Looks like we are getting good enough solutions!!!
+    from pydrake.all import (SolverType)
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
+
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 2.0e-2) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 2.0e-3) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  2.0e-3) # default="1.0e-6"
+
+    # Lower if nonlinear constraint are cheap to evaluate, else higher...
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Linesearch tolerance',  0.9) # default="0.9"
+
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',  120.0) # default="9999999.0"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
+
+    # Factoriztion?
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver CG', True) # Default="*Cholesky/CG/QN"
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver QN', True) # Default="*Cholesky/CG/QN"
+
+    for setting_name, setting in snopt_overrides:
+        print("Overrode {} = {}".format(setting_name, setting))
+        mto.prog.SetSolverOption(SolverType.kSnopt, setting_name, setting)
+
+    return mto
+
+
 class MultipleTrajOpt(object):
     # Currently only set up to make pendulum examples
     def __init__(self, 
@@ -254,10 +350,8 @@ class MultipleTrajOpt(object):
                 ub         = np.array([.0001])
                 var_list   = np.hstack((u_ti, x_ti, self.T))
                 if use_constraint:
-                    print("using constraint!")
                     self.prog.AddConstraint(constraint, lb, ub, var_list)
                 if cost_factor is not None:
-                    print("using cost factor: ",  cost_factor)
                     self.prog.AddCost(lambda x: cost_factor*constraint(x)[0]**2, var_list)
 
         
