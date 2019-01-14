@@ -19,15 +19,14 @@ class FC(nn.Module):
         return x
 
 class FCBIG(nn.Module):
-    def __init__(self, n_inputs=4):
+    def __init__(self, n_inputs=4, h_sz=8):
         super(FCBIG, self).__init__()
         self.n_inputs = n_inputs
-        self.fc2 = nn.Linear(self.n_inputs, 8)
-        self.fc3 = nn.Linear(8, 1)
+        self.fc2 = nn.Linear(self.n_inputs, h_sz)
+        self.fc3 = nn.Linear(h_sz, 1)
 
     def forward(self, x):
         x = F.relu(self.fc2(x))
-        # x = self.fc2(x)
         x = self.fc3(x)
         return x
 

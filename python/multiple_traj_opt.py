@@ -20,9 +20,10 @@ import torch
 # My stuff
 from nn_system.NNSystem import NNInferenceHelper_double
 from nn_system.NNSystemHelper import (
+    create_nn,
     create_nn_policy_system,
     make_NN_constraint,
-    create_nn,
+    FCBIG,
 )
 from traj.vis import (
     simulate_and_log_policy_system,
@@ -89,7 +90,7 @@ def initial_conditions_grid(num_trajectories, theta_bounds=theta_bounds, theta_d
         c = ti % n_theta
         ret.append( (theta_range[c], theta_dot_range[r]) )
     return ret
-def initial_conditions_random(num_trajectories):
+def initial_conditions_random(num_trajectories, theta_bounds=theta_bounds, theta_dot_bounds=theta_dot_bounds):
     # random state over some state-space bounds
     ret = []
     for ti in range(num_trajectories):
@@ -109,10 +110,10 @@ def make_mto(num_trajectories=16,
              num_samples=16,
              kMinimumTimeStep=0.2,
              kMaximumTimeStep=0.5,
-             ic_list=initial_conditions_grid(num_trajectories),
+             ic_list=None,
              warm_start=True,
              seed=1338,
-             kNetConstructor=lambda: FCBIG(2),
+             kNetConstructor=lambda: FCBIG(2, 32),
              use_constraint=True,
              cost_factor=None,
              initialize_params=True,
@@ -121,6 +122,8 @@ def make_mto(num_trajectories=16,
              vis_cb_display_rollouts=False,
              cost_cb_every_nth=None,
              snopt_overrides=[]):
+    if ic_list is None:
+        ic_list=initial_conditions_grid(num_trajectories, (-math.pi, math.pi), (-5., 5.))
 
     # ic_list = None
     # ic_list = [(0., 0.)]
@@ -160,9 +163,9 @@ def make_mto(num_trajectories=16,
         
     if vis_cb_every_nth is not None:
         if vis_cb_display_rollouts:
-            mto.add_multiple_trajectories_visualization_callback(vis_call_back_every_nth, vis_ic_list=None)
+            mto.add_multiple_trajectories_visualization_callback(vis_cb_every_nth, vis_ic_list=None)
         else:
-            mto.add_multiple_trajectories_visualization_callback(vis_call_back_every_nth, vis_ic_list=[])
+            mto.add_multiple_trajectories_visualization_callback(vis_cb_every_nth, vis_ic_list=[])
     if cost_cb_every_nth is not None:
         mto.add_cost_and_constraint_printing_callback(cost_cb_every_nth)
     
@@ -172,10 +175,14 @@ def make_mto(num_trajectories=16,
     # mto.prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)
     mto.prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
 
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 2.0e-2) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 2.0e-3) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  2.0e-3) # default="1.0e-6"
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 2.0e-2) # default="1.0e-6"
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 2.0e-3) # default="1.0e-6"
+    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  2.0e-3) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
+    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
 
     # Lower if nonlinear constraint are cheap to evaluate, else higher...
     # mto.prog.SetSolverOption(SolverType.kSnopt, 'Linesearch tolerance',  0.9) # default="0.9"
