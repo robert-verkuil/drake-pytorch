@@ -16,6 +16,7 @@ from pydrake.examples.pendulum import (PendulumPlant)
 
 # Weirddddddd, apparently pydrake MUST be imported before torch???
 import torch
+from torch.nn.init import * # Here's where I can specify which Torch NN inits I want...
 
 # My stuff
 from nn_system.NNSystem import NNInferenceHelper_double
@@ -106,24 +107,37 @@ def initial_conditions_random(num_trajectories, theta_bounds=theta_bounds, theta
 # }
 
 
-def make_mto(num_trajectories=16,
+def make_mto(
+             # Settings for just the trajectory optimization.
+             num_trajectories=16,
              num_samples=16,
              kMinimumTimeStep=0.2,
              kMaximumTimeStep=0.5,
              ic_list=None,
              warm_start=True,
              seed=1338,
+
+             # Below are the NN-centric init options.
+             use_dropout=True,
+             nn_init=kaiming_uniform,
+             nn_noise=1e-2,
              kNetConstructor=lambda: FCBIG(2, 32),
              use_constraint=True,
              cost_factor=None,
              initialize_params=True,
              reg_type="No",
+
+             # Callback display settings.
              vis_cb_every_nth=None,
              vis_cb_display_rollouts=False,
              cost_cb_every_nth=None,
+
              snopt_overrides=[]):
     if ic_list is None:
         ic_list=initial_conditions_grid(num_trajectories, (-math.pi, math.pi), (-5., 5.))
+    if seed is not None:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
     # ic_list = None
     # ic_list = [(0., 0.)]
@@ -139,8 +153,7 @@ def make_mto(num_trajectories=16,
                           kMinimumTimeStep,
                           kMaximumTimeStep,
                           ic_list=ic_list,
-                          warm_start=warm_start,
-                          seed=seed)
+                          warm_start=warm_start)
 
     ###############################################
     # Add a neural network!
@@ -214,8 +227,8 @@ class MultipleTrajOpt(object):
                  num_trajectories, num_samples,
                  kMinimumTimeStep, kMaximumTimeStep,
                  ic_list=None,
-                 warm_start=True,
-                 seed=None):
+                 warm_start=True):#,
+                 #seed=None):
         assert expmt == "pendulum"
         self.expmt = expmt
         self.num_inputs = 1
@@ -226,10 +239,11 @@ class MultipleTrajOpt(object):
         self.warm_start = warm_start
         self.cbs = [] # This list will contain which visualization cb's to call
         self.vis_cb_counter = 0
-        self.seed = seed
-        if self.seed is not None:
-            np.random.seed(self.seed)
-            torch.manual_seed(self.seed)
+        # Don't seed here, seed in make_mto
+        # self.seed = seed
+        # if self.seed is not None:
+        #     np.random.seed(self.seed)
+        #     torch.manual_seed(self.seed)
 
         # initial_conditions return a list of [num_trajectories x num_states] initial states
         # Use Russ's initial conditions, unless I pass in a function myself.
@@ -454,7 +468,7 @@ class MultipleTrajOpt(object):
         start = time.time()
         result = self.prog.Solve()
         dur = time.time() - start
-        print("TOTAL ELAPSED TIME: {}".format(dur))
+        print("RESULT: {} TOTAL ELAPSED TIME: {}".format(result, dur))
         return result
 
     def PrintFinalCostAndConstraint(self):
