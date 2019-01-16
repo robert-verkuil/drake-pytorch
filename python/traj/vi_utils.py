@@ -12,24 +12,34 @@ from pydrake.all import (
     DirectCollocation, 
     DynamicProgrammingOptions,
     FittedValueIteration,
+    FloatingBaseType,
     PeriodicBoundaryCondition,
     PiecewisePolynomial, 
+    RigidBodyTree,
+    RigidBodyPlant,
     SignalLogger,
     Simulator,
     SolutionResult,
     VectorSystem
 )
 
-from traj.visualizer import PendulumVisualizer # <- weird!
+import torch
+
+# Weird!
+if '.' in __name__:
+    from traj.visualizer import PendulumVisualizer
+else:
+    from visualizer import PendulumVisualizer
 
 ##################################
 # PENDULUM
 ##################################
+# TODO: handle this weird stuff...
 vis_cb_counter = 0
 dircol = None
 plant = None
 context = None
-def do_dircol(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_timestep=0.5, warm_start="linear", seed=1776, should_vis=False):
+def do_dircol_pendulum(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_timestep=0.5, warm_start="linear", seed=1776, should_vis=False):
     global dircol
     global plant
     global context
@@ -85,6 +95,95 @@ def do_dircol(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_timestep=0.5, 
     def MyVisualization(sample_times, values):
         global vis_cb_counter
 
+        vis_cb_counter += 1
+        if vis_cb_counter % 10 != 0:
+            return
+
+        x, x_dot = values[0], values[1]
+        plt.plot(x, x_dot, '-o', label=vis_cb_counter)
+    
+    if should_vis:
+        plt.figure()
+        plt.title('Tip trajectories')
+        plt.xlabel('x')
+        plt.ylabel('x_dot')
+        dircol.AddStateTrajectoryCallback(MyVisualization)
+
+    from pydrake.all import (SolverType)
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
+
+    result = dircol.Solve()
+    if result != SolutionResult.kSolutionFound:
+        print("result={}".format(result))
+
+    return dircol, result
+
+
+def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=64.):
+    global dircol
+    global plant
+    global context
+    tree = RigidBodyTree("/opt/underactuated/src/cartpole/cartpole.urdf",
+                     FloatingBaseType.kFixed)
+    plant = RigidBodyPlant(tree)
+    context = plant.CreateDefaultContext()
+    dircol = DirectCollocation(plant, context, num_time_samples=num_samples,
+                               # minimum_timestep=0.01, maximum_timestep=0.01)
+                               minimum_timestep=min_timestep, maximum_timestep=max_timestep)
+
+#     dircol.AddEqualTimeIntervalsConstraints()
+
+#     torque_limit = input_limit  # N*m.
+    # torque_limit = 64.
+    u = dircol.input()
+    dircol.AddConstraintToAllKnotPoints(-torque_limit <= u[0])
+    dircol.AddConstraintToAllKnotPoints(u[0] <= torque_limit)
+
+    initial_state = ic
+    dircol.AddBoundingBoxConstraint(initial_state, initial_state,
+                                    dircol.initial_state())
+    final_state = np.array([0., math.pi, 0., 0.])
+    dircol.AddBoundingBoxConstraint(final_state, final_state,
+                                    dircol.final_state())
+
+#     R = 100  # Cost on input "effort".
+    u = dircol.input()
+    x = dircol.state()
+    #denom1 = float(10**2+math.pi**2+10**2+math.pi**2)
+    #denom2 = float(180**2)
+    denom1 = 10**2+math.pi**2+10**2+math.pi**2
+    denom2 = 180**2
+    # dircol.AddRunningCost(u.dot(u)/denom2)
+    # dircol.AddRunningCost(2*(x-final_state).dot(x-final_state)/denom1)
+    dircol.AddRunningCost(2*(x-final_state).dot(x-final_state)/denom1 + u.dot(u)/denom2)
+
+    # Add a final cost equal to the total duration.
+    dircol.AddFinalCost(dircol.time()) # Enabled to sim min time cost?
+
+    if warm_start == "linear":
+        initial_u_trajectory = PiecewisePolynomial()
+        initial_x_trajectory = \
+            PiecewisePolynomial.FirstOrderHold([0., 4.],
+                                           np.column_stack((initial_state,
+                                                            final_state)))
+        dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
+
+#     elif warm_start == "random":
+#         assert isinstance(seed, int)
+#         np.random.seed(seed)
+#         breaks = np.linspace(0, 4, 21).reshape((-1, 1))  # using num_time_samples
+#         u_knots = np.random.rand(1, 21)*2*input_limit-input_limit # num_inputs vs num_samples? 
+#         x_knots = np.random.rand(2, 21)*2*3-3 # num_states vs num_samples? 
+#         initial_u_trajectory = PiecewisePolynomial.Cubic(breaks, u_knots, False)
+#         initial_x_trajectory = PiecewisePolynomial.Cubic(breaks, x_knots, False)
+#         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
+
+    
+    def MyVisualization(sample_times, values):
+        global vis_cb_counter
         vis_cb_counter += 1
         if vis_cb_counter % 10 != 0:
             return
@@ -220,3 +319,54 @@ def graph_vi_policy_vs_traj_knot_scatter(vi_policy,
         zs = np.array(expected_us) - np.array(found_us)
         ax3.scatter(xs, ys, zs, c='r', marker='^')
 
+
+from pydrake.all import (BarycentricMesh, BarycentricMeshSystem)
+def save_vi_policy(vi_policy, name, experiment): # binds to policy and state_grid
+    output_values = vi_policy.get_output_values()
+    np.save('numpy_saves/pi_b_mesh_init__'+experiment+'_'+name, state_grid)
+    np.save('numpy_saves/pi_output_values__'+experiment+'_'+name, output_values)
+def load_vi_policy(name, experiment):
+    b_mesh_init = np.load('numpy_saves/pi_b_mesh_init__'+experiment+'_'+name+'.npy').tolist()
+    output_values = np.load('numpy_saves/pi_output_values__'+experiment+'_'+name+'.npy')
+    b_mesh = BarycentricMesh(b_mesh_init)
+    return BarycentricMeshSystem(b_mesh, output_values)
+def vis_vi_policy(vi_policy):
+    from mpl_toolkits.mplot3d import Axes3D
+    from matplotlib import cm
+
+    sets = vi_policy.get_mesh().get_input_grid()
+    lists = [sorted(list(s)) for s in sets]
+    [Q, Qdot] = np.meshgrid(*lists)
+    Pi = np.reshape(vi_policy.get_output_values(), Q.shape)
+
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+    ax.set_xlabel("q")
+    ax.set_ylabel("qdot")
+    surf = ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
+                            cmap=cm.jet)
+def vis_nn_policy_like_vi_policy(net, vi_policy):
+    from mpl_toolkits.mplot3d import Axes3D
+    from matplotlib import cm
+
+    sets = vi_policy.get_mesh().get_input_grid()
+    lists = [sorted(list(s)) for s in sets]
+    [Q, Qdot] = np.meshgrid(*lists)
+    
+    coords = zip(Q.flatten(), Qdot.flatten())
+    Pi = np.reshape(net.forward(torch.tensor(coords)).data.numpy(), Q.shape)
+
+    fig2 = plt.figure()
+    ax2 = fig2.gca(projection='3d')
+    ax2.set_xlabel("q")
+    ax2.set_ylabel("qdot")
+    surf = ax2.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
+                            cmap=cm.jet)
+# save_vi_policy(vi_policy, 'good')
+# test = load_vi_policy('good')
+
+# Save torch model - https://pytorch.org/tutorials/beginner/saving_loading_models.html
+
+# model = TheModelClass(*args, **kwargs)
+# model.load_state_dict(torch.load(PATH))
+# model.eval()
