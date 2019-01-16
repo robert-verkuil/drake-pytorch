@@ -171,7 +171,10 @@ def make_mto(
                           use_constraint    = use_constraint,
                           cost_factor       = cost_factor,
                           initialize_params = initialize_params, 
-                          reg_type          = reg_type)
+                          reg_type          = reg_type,
+                          use_dropout       = True,
+                          nn_init           = kaiming_uniform,
+                          nn_noise          = 1e-2)
 
         
     if vis_cb_every_nth is not None:
@@ -326,9 +329,14 @@ class MultipleTrajOpt(object):
 
     def add_nn_params(self,
                       kNetConstructor, 
-                      use_constraint=True, cost_factor=None,
-                      initialize_params=True, 
-                      reg_type="No"):
+                      use_constraint    = True,
+                      cost_factor       = None,
+                      initialize_params = True, 
+                      reg_type          = "No",
+                      use_dropout       = True,
+                      nn_init           = kaiming_uniform,
+                      nn_noise          = 1e-2):
+
         self.kNetConstructor = kNetConstructor
 
         # Determine num_params and add them to the prog.
@@ -489,12 +497,11 @@ class MultipleTrajOpt(object):
             u_pi = NNInferenceHelper_double(nn, x_val)[0]
             print( "({: .2f})-({: .2f})= {: .2f}".format(u_val, u_pi, u_val - u_pi) )
 
-    def __rollout_policy_given_params(self, h_sol, params_list, ic=None):
+    def __rollout_policy_given_params(self, h_sol, params_list, ic=None, WALLCLOCK_TIME_LIMIT=6):
         nn_policy = create_nn_policy_system(self.kNetConstructor, params_list)
         simulator, _, logger = simulate_and_log_policy_system(nn_policy, self.expmt, ic)
         # simulator.get_integrator().set_target_accuracy(1e-1)
 
-        WALLCLOCK_TIME_LIMIT = 6
         start = time.time()
         while simulator.get_context().get_time() < h_sol*self.num_samples:
             if time.time() - start > WALLCLOCK_TIME_LIMIT:

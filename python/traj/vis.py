@@ -86,8 +86,13 @@ def plot_trajectory(x_samples, plot_type, expmt, create_figure=True, symbol='-')
         x = np.array(x)
         y = np.array(y)
         plt.quiver(x[:-1], y[:-1], x[1:]-x[:-1], y[1:]-y[:-1], scale_units='xy', angles='xy', scale=1)
-    plt.plot(x[0], y[0], 'go')
-    plt.plot(x[-1], y[-1], 'ro')
+    if symbol == '-':
+        plt.plot(x[0], y[0], 'go')
+        plt.plot(x[-1], y[-1], 'ro')
+    else:
+        plt.plot(x[0], y[0], 'bo')
+        plt.plot(x[-1], y[-1], 'mo')
+
 
 # Visualize the result as a video.
 def render_trajectory(x_trajectory_or_logger):
