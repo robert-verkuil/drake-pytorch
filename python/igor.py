@@ -47,7 +47,6 @@ def make_fake_dircol(dircol):
             return self.input_trajectory
     return FakeDircol(dircol)
 
-# Absolute bare minimum to get it to work for pendulum, cartpole, and acrobot - THAT'S IT!  Worry about packaging LATER!!!
 def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
     optimized_trajs, dircols = [], []
     for i, ic in enumerate(ic_list):
@@ -70,33 +69,32 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
     assert len(optimized_trajs) == len(ic_list)
     return optimized_trajs, dircols
 
-# Absolute bare minimum to get it to work for pendulum, cartpole, and acrobot - THAT'S IT!  Worry about packaging LATER!!!
-def f(x):
-    return x*x
-if __name__ == '__main__':
-    p = Pool(multiprocessing.cpu_count() - 1)
-    print(p.map(f, [1, 2, 3]))
+# Will be used below in igor_traj_opt_parallel()
+def f(inp):
+    (do_dircol_fn, i, ic) = inp
+    start = time.time()
+    dircol, result = do_dircol_fn(
+                        ic           = ic,
+                        warm_start   = "linear",
+                        seed         = 1776,
+                        )#**kwargs) # <- will this work?
+    print("{} took {}".format(i, time.time() - start))
+
+    #times   = dircol.GetSampleTimes().T
+    #x_knots = dircol.GetStateSamples().T
+    #u_knots = dircol.GetInputSamples().T
+    times, x_knots, u_knots = 0., 0., 0.
+    optimized_traj = (times, x_knots, u_knots)
+
+    return optimized_traj, 0. #make_fake_dircol(dircol)
 
 def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
+    import multiprocessing
     from multiprocessing import Pool
 
-    def f(i, ic):
-        start = time.time()
-        dircol, result = do_dircol_fn(
-                            ic           = ic,
-                            warm_start   = "linear",
-                            seed         = 1776,
-                            **kwargs) # <- will this work?
-
-        times   = dircol.GetSampleTimes().T
-        x_knots = dircol.GetStateSamples().T
-        u_knots = dircol.GetInputSamples().T
-        optimized_traj = (times, x_knots, u_knots)
-
-        return optimized_traj, make_fake_dircol(dircol)
-
     p = Pool(multiprocessing.cpu_count() - 1)
-    results = p.map(f, list(enumerate(ic_list)))
+    inputs = [(do_dircol_fn, i, ic) for i, ic in enumerate(ic_list)]
+    results = p.map(f, inputs)
     optimized_trajs, dircols = zip(*results)
     assert len(optimized_trajs) == len(ic_list)
     

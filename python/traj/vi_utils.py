@@ -230,7 +230,6 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
         if vis_cb_counter % 30 != 0:
             return
         
-        print("go")
         coords = [state_to_tip_coord(state) for state in values.T]
         x, y = zip(*coords)
         plt.plot(x, y, '-o', label=vis_cb_counter)
@@ -244,13 +243,12 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
 
     from pydrake.all import (SolverType)
     dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-1) # default="1.0e-6"
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             30.0) # default="9999999.0"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-1) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             12.0) # default="9999999.0" # Very aggressive cutoff...
 
     dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
-    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',  120.0) # default="9999999.0"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
@@ -263,7 +261,7 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
     result = dircol.Solve()
     if result != SolutionResult.kSolutionFound:
         print("result={}".format(result))
-    plt.legend()
+    # plt.legend()
 
     return dircol, result
 
