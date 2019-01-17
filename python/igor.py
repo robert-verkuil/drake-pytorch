@@ -21,31 +21,29 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from nn_system.networks import FC, FCBIG, MLPSMALL, MLP
+import copy
 import time
 
 # SUPER HACK - because for some reason you can't keep around a reference to a dircol?
-def make_fake_dircol(dircol):
-    import copy
-    class FakeDircol():
-        def __init__(self, dircol):
-            self.sample_times     = copy.deepcopy(dircol.GetSampleTimes())
-            self.state_samples    = copy.deepcopy(dircol.GetStateSamples())
-            self.input_samples    = copy.deepcopy(dircol.GetInputSamples())
+class FakeDircol():
+    def __init__(self, dircol):
+        self.sample_times     = copy.deepcopy(dircol.GetSampleTimes())
+        self.state_samples    = copy.deepcopy(dircol.GetStateSamples())
+        self.input_samples    = copy.deepcopy(dircol.GetInputSamples())
 #             self.state_trajectory = copy.deepcopy(dircol.ReconstructStateTrajectory())
 #             self.input_trajectory = copy.deepcopy(dircol.ReconstructInputTrajectory())
-            self.state_trajectory = dircol.ReconstructStateTrajectory()
-            self.input_trajectory = dircol.ReconstructInputTrajectory()
-        def GetSampleTimes(self):
-            return self.sample_times
-        def GetStateSamples(self):
-            return self.state_samples
-        def GetInputSamples(self):
-            return self.input_samples
-        def ReconstructStateTrajectory(self):
-            return self.state_trajectory
-        def ReconstructInputTrajectory(self):
-            return self.input_trajectory
-    return FakeDircol(dircol)
+        self.state_trajectory = dircol.ReconstructStateTrajectory()
+        self.input_trajectory = dircol.ReconstructInputTrajectory()
+    def GetSampleTimes(self):
+        return self.sample_times
+    def GetStateSamples(self):
+        return self.state_samples
+    def GetInputSamples(self):
+        return self.input_samples
+    def ReconstructStateTrajectory(self):
+        return self.state_trajectory
+    def ReconstructInputTrajectory(self):
+        return self.input_trajectory
 
 def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
     optimized_trajs, dircols = [], []
@@ -57,7 +55,7 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
                             seed         = 1776,
                             **kwargs)
         print("{} took {}".format(i, time.time() - start))
-        dircols.append(make_fake_dircol(dircol))
+        dircols.append(FakeDircol(dircol))
 
         times   = dircol.GetSampleTimes().T
         x_knots = dircol.GetStateSamples().T
@@ -80,13 +78,12 @@ def f(inp):
                         )#**kwargs) # <- will this work?
     print("{} took {}".format(i, time.time() - start))
 
-    #times   = dircol.GetSampleTimes().T
-    #x_knots = dircol.GetStateSamples().T
-    #u_knots = dircol.GetInputSamples().T
-    times, x_knots, u_knots = 0., 0., 0.
+    times   = dircol.GetSampleTimes().T
+    x_knots = dircol.GetStateSamples().T
+    u_knots = dircol.GetInputSamples().T
     optimized_traj = (times, x_knots, u_knots)
 
-    return optimized_traj, 0. #make_fake_dircol(dircol)
+    return optimized_traj, FakeDircol(dircol)
 
 def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
     import multiprocessing
