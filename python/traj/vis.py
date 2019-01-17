@@ -129,6 +129,7 @@ def simulate_and_log_policy_system(policy_system, expmt, ic=None):
         },
     }
     assert expmt in expmt_settings.keys()
+    print("using expmt = ", expmt)
 
     # Animate the resulting policy.
     settings = expmt_settings[expmt]

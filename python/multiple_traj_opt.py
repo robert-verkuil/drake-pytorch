@@ -100,6 +100,14 @@ def initial_conditions_random(num_trajectories, theta_bounds=theta_bounds, theta
         theta_dot =  (theta_dot_bounds[1] - theta_dot_bounds[0]) * rand2 + theta_dot_bounds[0]
         ret.append( (theta, theta_dot) )
     return ret
+def initial_conditions_random_all_dims(num_trajectories, bounds_list):
+    # random state over some state-space bounds
+    N = len(bounds_list)
+    ret = []
+    for ti in range(num_trajectories):
+        coord = tuple(np.random.uniform(*bound) for bound in bounds_list)
+        ret.append( coord )
+    return ret
 # intial_cond_dict = {
 #     "Russ": initial_conditions_Russ,
 #     "grid": initial_conditions_grid,
@@ -232,7 +240,7 @@ class MultipleTrajOpt(object):
                  ic_list=None,
                  warm_start=True):#,
                  #seed=None):
-        assert expmt == "pendulum"
+        # assert expmt == "pendulum" # Disabling this as we bring cartpole into the fold...
         self.expmt = expmt
         self.num_inputs = 1
         self.num_states = 2

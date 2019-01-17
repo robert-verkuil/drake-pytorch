@@ -48,7 +48,7 @@ def make_fake_dircol(dircol):
     return FakeDircol(dircol)
 
 # Absolute bare minimum to get it to work for pendulum, cartpole, and acrobot - THAT'S IT!  Worry about packaging LATER!!!
-def igor_traj_opt(do_dircol_fn, ic_list, **kwargs):
+def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
     optimized_trajs, dircols = [], []
     for i, ic in enumerate(ic_list):
         start = time.time()
@@ -56,10 +56,8 @@ def igor_traj_opt(do_dircol_fn, ic_list, **kwargs):
                             ic           = ic,
                             warm_start   = "linear",
                             seed         = 1776,
-                            should_vis   = False,
                             **kwargs)
-#         print("{} took {}".format(i, time.time() - start))
-#         dircols.append(dircol)
+        print("{} took {}".format(i, time.time() - start))
         dircols.append(make_fake_dircol(dircol))
 
         times   = dircol.GetSampleTimes().T
@@ -70,6 +68,38 @@ def igor_traj_opt(do_dircol_fn, ic_list, **kwargs):
         if (i+1) % 10 == 0:
             print("completed {} trajectories".format(i+1))
     assert len(optimized_trajs) == len(ic_list)
+    return optimized_trajs, dircols
+
+# Absolute bare minimum to get it to work for pendulum, cartpole, and acrobot - THAT'S IT!  Worry about packaging LATER!!!
+def f(x):
+    return x*x
+if __name__ == '__main__':
+    p = Pool(multiprocessing.cpu_count() - 1)
+    print(p.map(f, [1, 2, 3]))
+
+def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
+    from multiprocessing import Pool
+
+    def f(i, ic):
+        start = time.time()
+        dircol, result = do_dircol_fn(
+                            ic           = ic,
+                            warm_start   = "linear",
+                            seed         = 1776,
+                            **kwargs) # <- will this work?
+
+        times   = dircol.GetSampleTimes().T
+        x_knots = dircol.GetStateSamples().T
+        u_knots = dircol.GetInputSamples().T
+        optimized_traj = (times, x_knots, u_knots)
+
+        return optimized_traj, make_fake_dircol(dircol)
+
+    p = Pool(multiprocessing.cpu_count() - 1)
+    results = p.map(f, list(enumerate(ic_list)))
+    optimized_trajs, dircols = zip(*results)
+    assert len(optimized_trajs) == len(ic_list)
+    
     return optimized_trajs, dircols
 
 
@@ -128,7 +158,9 @@ def visualize_intermediate_results(trajectories,
                                    ic_list=None,  
                                    ic_scale=1., 
                                    WALLCLOCK_TIME_LIMIT=1,
-                                   constructor=lambda: FCBIG(2, 128)):
+                                   constructor=lambda: FCBIG(2, 128),
+                                   expmt="pendulum",
+                                   plot_type="state_scatter"):
     vis_ic_list = ic_list
     vis_trajectories = trajectories
     if len(ic_list) > 25:
@@ -140,10 +172,10 @@ def visualize_intermediate_results(trajectories,
         
     plt.figure()
     for (times, x_knots, u_knots) in vis_trajectories:
-        plot_trajectory(x_knots.T, "state_scatter", "pendulum", create_figure=False, symbol='-')
+        plot_trajectory(x_knots.T, plot_type, expmt, create_figure=False, symbol='-')
     
     if network is not None:
-        dummy_mto = MultipleTrajOpt("pendulum", num_trajectories, num_samples, 1, 1)
+        dummy_mto = MultipleTrajOpt(expmt, num_trajectories, num_samples, 1, 1)
         dummy_mto.kNetConstructor = constructor # a hack!
         params_list = np.hstack([param.clone().detach().numpy().flatten() for param in network.parameters()])
     
@@ -153,7 +185,7 @@ def visualize_intermediate_results(trajectories,
 #             h_sol = (0.2+0.5)/2 # TODO: control this better
             h_sol = 0.5
             _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol, params_list, ic=np.array(ic)*ic_scale, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
-            plot_trajectory(x_knots, "state_scatter", "pendulum", create_figure=False, symbol=':')
+            plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
     plt.show()
     # Enable this to clear each plot on the next draw() call.
 #     display.display(plt.gcf())

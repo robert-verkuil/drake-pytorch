@@ -122,7 +122,7 @@ def do_dircol_pendulum(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_times
     return dircol, result
 
 
-def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=64.):
+def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=180.):
     global dircol
     global plant
     global context
@@ -182,15 +182,59 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
 #         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
 
     
-    def MyVisualization(sample_times, values):
+    def cb(decision_vars):
         global vis_cb_counter
         vis_cb_counter += 1
         if vis_cb_counter % 10 != 0:
             return
 
-        x, x_dot = values[0], values[1]
-        plt.plot(x, x_dot, '-o', label=vis_cb_counter)
-    
+        # Get the total cost
+        all_costs = dircol.EvalBindings(dircol.GetAllCosts(), decision_vars)
+
+        # Get the total cost of the constraints.
+        # Additionally, the number and extent of any constraint violations.
+        violated_constraint_count = 0
+        violated_constraint_cost  = 0
+        constraint_cost           = 0
+        for constraint in dircol.GetAllConstraints():
+            val = dircol.EvalBinding(constraint, decision_vars)
+
+            # Consider switching to DoCheckSatisfied if you can find the binding...
+            nudge = 1e-1 # This much constraint violation is not considered bad...
+            lb = constraint.evaluator().lower_bound()
+            ub = constraint.evaluator().upper_bound()
+            good_lb = np.all( np.less_equal(lb, val+nudge) )
+            good_ub = np.all( np.greater_equal(ub, val-nudge) )
+            if not good_lb or not good_ub:
+                # print("{} <= {} <= {}".format(lb, val, ub))
+                violated_constraint_count += 1
+                # violated_constraint_cost += np.sum(np.abs(val))
+                if not good_lb:
+                    violated_constraint_cost += np.sum(np.abs(lb - val))
+                if not good_ub:
+                    violated_constraint_cost += np.sum(np.abs(val - ub))
+            constraint_cost += np.sum(np.abs(val))
+        print("total cost: {: .2f} | \tconstraint {: .2f} \tbad {}, {: .2f}".format(
+            sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
+    # dircol.AddVisualizationCallback(cb, dircol.decision_variables())
+
+    def MyVisualization(sample_times, values):
+        def state_to_tip_coord(state_vec):
+            # State: (x, theta, x_dot, theta_dot)
+            x, theta, _, _ = state_vec
+            pole_length = 0.5 # manually looked this up
+            return (x-pole_length*np.sin(theta), pole_length-np.cos(theta))
+        global vis_cb_counter
+
+        vis_cb_counter += 1
+        if vis_cb_counter % 30 != 0:
+            return
+        
+        print("go")
+        coords = [state_to_tip_coord(state) for state in values.T]
+        x, y = zip(*coords)
+        plt.plot(x, y, '-o', label=vis_cb_counter)
+
     if should_vis:
         plt.figure()
         plt.title('Tip trajectories')
@@ -203,10 +247,23 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
     dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             30.0) # default="9999999.0"
+
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',  120.0) # default="9999999.0"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
+
+    # Factoriztion?
+    # dircol.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
 
     result = dircol.Solve()
     if result != SolutionResult.kSolutionFound:
         print("result={}".format(result))
+    plt.legend()
 
     return dircol, result
 
