@@ -68,59 +68,80 @@ out_list_autodiff = NNInferenceHelper_autodiff(network, in_list_autodiff)
 np.testing.assert_allclose(out_list_double, [elem.value() for elem in out_list_autodiff])
 
 
+def finite_difference_check_autodiffs(autodiff_params=False, debug=False):
+    NUM_INPUTS = 4
+    NETS_TO_TEST = [FC]#, FCBIG, MLPSMALL]#, MLP]
+    DEBUG = False
+    for kNetConstructor in NETS_TO_TEST:
+        if DEBUG: np.random.seed(1), torch.manual_seed(1)
+
+        # Make a net and calculate n_inputs and n_outputs
+        network = kNetConstructor()
+        param_dims = list(param.size() for param in network.parameters())
+        n_params = np.sum(np.prod(param_dim) for param_dim in param_dims)
+        n_inputs  = param_dims[0][-1]
+        n_outputs = param_dims[-1][-1]
+        total_params = n_inputs + n_params if autodiff_params else n_inputs
+        param_list = []
+
+        def one_hot(i, N):
+            ret = np.zeros(N)
+            ret[i] = 1
+            return ret
+
+        # Make total_param number of AutoDiffXd's, with (seeded) random values.
+        # Set derivatives array to length total_param with only index i set for ith AutoDiff.
+        values = (np.ones(n_inputs) if DEBUG else np.random.randn(n_inputs))
+        in_list = np.array([AutoDiffXd(values[i], one_hot(i, total_params)) for i in range(n_inputs)])
+
+        # Optionally create a list of AutoDiffXd's for the parameters declared in the context.
+        if autodiff_params:
+            values = (np.ones(n_params) if DEBUG else np.random.randn(n_params))
+            param_list = np.array([AutoDiffXd(values[i], one_hot(n_inputs+i, total_params)) for i in range(n_params)])
+        print(list(param.derivatives() for param in param_list))
+
+        # First, generate all the AutoDiffXd outputs.
+        if autodiff_params:
+            out_list = NNInferenceHelper_autodiff(network, in_list, param_list=param_list, debug=debug)
+        else:
+            out_list = NNInferenceHelper_autodiff(network, in_list, debug=debug)
+
+        # f     : function(np.array of AutoDiffXd's) -> array of size one of AutoDiffXd
+        # x     : np.array of AutoDiffXd at which to calculate finite_difference
+        # idx   : Index of AutoDiffXd in x to perturb
+        # delta : magnitude of perturbation of AutoDiffXd at index idx of x
+        def finite_difference(f, x, idx, delta=1e-7):
+            x_hi = copy.deepcopy(x)
+            x_hi[idx] += delta
+            x_lo = copy.deepcopy(x)
+            x_lo[idx] -= delta
+            out_hi = np.array([elem.value() for elem in f(x_hi)])
+            out_lo = np.array([elem.value() for elem in f(x_lo)])
+            return (out_hi - out_lo) / (2*delta)
+
+        # For each output, finite difference check each input and compare against derivatives vector of corresponding autodiff output.
+        for out_idx in range(n_outputs):
+            ad_grad_all = out_list[out_idx]
+            for inp_idx in range(total_params): 
+                # Do finite difference calculation and compare against gradient
+                if autodiff_params:
+                    fn = lambda x: NNInferenceHelper_autodiff(network, x[:n_inputs], param_list=x[n_inputs:])
+                else:
+                    fn = lambda x: NNInferenceHelper_autodiff(network, x[:n_inputs])
+                fd_grad = finite_difference(fn, np.hstack((in_list, param_list)), inp_idx)
+                ad_grad = ad_grad_all.derivatives()[inp_idx]
+                if DEBUG: print("fd_grad: {} ad_grad: {}".format(fd_grad, ad_grad))
+                np.testing.assert_allclose(fd_grad, ad_grad, atol=1e-3)
+        print("\t ...GOOD")
+
 # Test 3
 # Use finite difference method to test AutoDiff flow from input -> output.
-NUM_INPUTS = 4
-NETS_TO_TEST = [FC, FCBIG, MLPSMALL, MLP]
-DEBUG = False
-for kNetConstructor in NETS_TO_TEST:
-    if DEBUG: np.random.seed(1), torch.manual_seed(1)
+finite_difference_check_autodiffs(autodiff_params=False)
 
-    # Make a net and calculate n_inputs and n_outputs
-    network = kNetConstructor()
-    param_dims = list(param.size() for param in network.parameters())
-    n_inputs  = param_dims[0][-1]
-    n_outputs = param_dims[-1][-1]
-
-    # Make total_param number of AutoDiffXd's, with (seeded) random values.
-    # Set derivatives array to length total_param with only index i set for ith AutoDiff.
-    total_params = NUM_INPUTS # TODO: change this to also include num_params when you start supporting derivatives for those, too.
-    values = (np.ones(total_params) if DEBUG else np.random.randn(total_params))
-    def one_hot(i, n_params):
-        ret = np.zeros(n_params)
-        ret[i] = 1
-        return ret
-    in_list = np.array([AutoDiffXd(values[i], one_hot(i, total_params)) for i in range(total_params)])
-
-    # First, generate all the AutoDiffXd outputs.
-    out_list = NNInferenceHelper_autodiff(network, in_list)
-
-    # f     : function(np.array of AutoDiffXd's) -> array of size one of AutoDiffXd
-    # x     : np.array of AutoDiffXd at which to calculate finite_difference
-    # idx   : Index of AutoDiffXd in x to perturb
-    # delta : magnitude of perturbation of AutoDiffXd at index idx of x
-    def finite_difference(f, x, idx, delta=1e-7):
-        x_hi = copy.deepcopy(x)
-        x_hi[idx] += delta
-        x_lo = copy.deepcopy(x)
-        x_lo[idx] -= delta
-        out_hi = np.array([elem.value() for elem in f(x_hi)])
-        out_lo = np.array([elem.value() for elem in f(x_lo)])
-        return (out_hi - out_lo) / (2*delta)
-
-    # For each output, finite difference check each input and compare against derivatives vector of corresponding autodiff output.
-    for out_idx in range(n_outputs):
-        ad_grad_all = out_list[out_idx]
-        for inp_idx in range(total_params): 
-            # Do finite difference calculation and compare against gradient
-            fd_grad = finite_difference(lambda x: NNInferenceHelper_autodiff(network, x), in_list, inp_idx)
-            ad_grad = ad_grad_all.derivatives()[inp_idx]
-            if DEBUG: print("fd_grad: {} ad_grad: {}".format(fd_grad, ad_grad))
-            np.testing.assert_allclose(fd_grad, ad_grad, atol=1e-3)
-    print("\t ...GOOD")
-
-
+# Test 4
 # Use finite difference method to test AutoDiff flow from param -> output.
+finite_difference_check_autodiffs(autodiff_params=True, debug=True)
+
 
 
 
