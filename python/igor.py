@@ -238,7 +238,7 @@ def visualize_intermediate_results(trajectories,
 #             h_sol = (0.2+0.5)/2 # TODO: control this better
             h_sol = 0.5
             _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol, params_list, ic=np.array(ic)*ic_scale, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
-            print("last x_knot: ", x_knots[-1])
+            print("last x_knot: ", x_knots.T[-1])
             plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
     plt.show()
     # Enable this to clear each plot on the next draw() call.
