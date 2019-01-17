@@ -92,6 +92,7 @@ def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
     p = Pool(multiprocessing.cpu_count() - 1)
     inputs = [(do_dircol_fn, i, ic) for i, ic in enumerate(ic_list)]
     results = p.map(f, inputs)
+    p.close() # good?
     optimized_trajs, dircols = zip(*results)
     assert len(optimized_trajs) == len(ic_list)
     
