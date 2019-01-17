@@ -46,7 +46,7 @@ class FakeDircol():
         return self.input_trajectory
 
 def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
-    optimized_trajs, dircols = [], []
+    optimized_trajs, dircols, results = [], [], []
     for i, ic in enumerate(ic_list):
         start = time.time()
         dircol, result = do_dircol_fn(
@@ -56,6 +56,7 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
                             **kwargs)
         print("{} took {}".format(i, time.time() - start))
         dircols.append(FakeDircol(dircol))
+        results.append(result)
 
         times   = dircol.GetSampleTimes().T
         x_knots = dircol.GetStateSamples().T
@@ -65,17 +66,18 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
         if (i+1) % 10 == 0:
             print("completed {} trajectories".format(i+1))
     assert len(optimized_trajs) == len(ic_list)
-    return optimized_trajs, dircols
+    return optimized_trajs, dircols, results
 
 # Will be used below in igor_traj_opt_parallel()
 def f(inp):
-    (do_dircol_fn, i, ic) = inp
+    (do_dircol_fn, i, ic, kwargs) = inp
+    # print(kwargs)
     start = time.time()
     dircol, result = do_dircol_fn(
                         ic           = ic,
                         warm_start   = "linear",
                         seed         = 1776,
-                        )#**kwargs) # <- will this work?
+                        **kwargs) # <- will this work?
     print("{} took {}".format(i, time.time() - start))
 
     times   = dircol.GetSampleTimes().T
@@ -83,20 +85,20 @@ def f(inp):
     u_knots = dircol.GetInputSamples().T
     optimized_traj = (times, x_knots, u_knots)
 
-    return optimized_traj, FakeDircol(dircol)
+    return optimized_traj, FakeDircol(dircol), result
 
 def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
     import multiprocessing
     from multiprocessing import Pool
 
     p = Pool(multiprocessing.cpu_count() - 1)
-    inputs = [(do_dircol_fn, i, ic) for i, ic in enumerate(ic_list)]
+    inputs = [(do_dircol_fn, i, ic, kwargs) for i, ic in enumerate(ic_list)]
     results = p.map(f, inputs)
     p.close() # good?
-    optimized_trajs, dircols = zip(*results)
+    optimized_trajs, dircols, results = zip(*results)
     assert len(optimized_trajs) == len(ic_list)
     
-    return optimized_trajs, dircols
+    return optimized_trajs, dircols, results
 
 
 def igor_supervised_learning(trajectories, net, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
@@ -109,8 +111,8 @@ def igor_supervised_learning(trajectories, net, use_prox=True, iter_repeat=1, EP
     optimizer = optim.Adam(net.parameters(), lr=lr)
 
     # My data
-    all_inputs = np.vstack([np.expand_dims(traj[1], axis=0) for traj in trajectories])
-    all_labels = np.vstack([np.expand_dims(traj[2], axis=0) for traj in trajectories])
+    all_inputs = np.vstack([np.expand_dims(traj[1][:-1], axis=0) for traj in trajectories])
+    all_labels = np.vstack([np.expand_dims(traj[2][:-1], axis=0) for traj in trajectories])
     all_inputs = all_inputs.reshape(-1, all_inputs.shape[-1])
     all_labels = all_labels.reshape(-1, all_labels.shape[-1])
     print(all_inputs.shape)
@@ -158,9 +160,9 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
     criterion2 = nn.MSELoss()
     optimizer = optim.Adam(net.parameters(), lr=lr)
 
-    # My data
-    all_inputs = np.vstack([np.expand_dims(traj[1], axis=0) for traj in trajectories])
-    all_labels = np.vstack([np.expand_dims(traj[2], axis=0) for traj in trajectories])
+    # My data, and drop the last point
+    all_inputs = np.vstack([np.expand_dims(traj[1][:-1], axis=0) for traj in trajectories])
+    all_labels = np.vstack([np.expand_dims(traj[2][:-1], axis=0) for traj in trajectories])
     all_inputs = all_inputs.reshape(-1, all_inputs.shape[-1])
     all_labels = all_labels.reshape(-1, all_labels.shape[-1])
     print(all_inputs.shape)
@@ -236,6 +238,7 @@ def visualize_intermediate_results(trajectories,
 #             h_sol = (0.2+0.5)/2 # TODO: control this better
             h_sol = 0.5
             _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol, params_list, ic=np.array(ic)*ic_scale, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+            print("last x_knot: ", x_knots[-1])
             plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
     plt.show()
     # Enable this to clear each plot on the next draw() call.

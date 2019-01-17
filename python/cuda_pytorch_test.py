@@ -1,6 +1,7 @@
 import torch
 
 def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     net.to(device)
 
     alpha, lam, eta = 10., 10.**2, 10.**-2
@@ -55,12 +56,11 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
     print('Finished Training')
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
     trajectories = 
     net = 
 
-    igor_supervised_learning_cuda(trajectories, net, use_prox=False, iter_repeat=100, EPOCHS=1, lr=1e-2):
+    igor_supervised_learning_cuda(trajectories, net, use_prox=False, iter_repeat=1, EPOCHS=1, lr=1e-2):
 
 
 
