@@ -9,21 +9,23 @@ import torch.optim as optim
 torch.set_default_tensor_type('torch.DoubleTensor')
 
 class FC(nn.Module):
-    def __init__(self, n_inputs=4):
+    def __init__(self, n_inputs=4, n_outputs=1):
         super(FC, self).__init__()
-        self.n_inputs = n_inputs
-        self.fc1 = nn.Linear(self.n_inputs, 1)
+        self.n_inputs  = n_inputs
+        self.n_outputs = n_outputs
+        self.fc1 = nn.Linear(self.n_inputs, self.n_outputs)
     
     def forward(self, x):
         x = self.fc1(x)
         return x
 
 class FCBIG(nn.Module):
-    def __init__(self, n_inputs=4, h_sz=8):
+    def __init__(self, n_inputs=4, h_sz=8, n_outputs=1):
         super(FCBIG, self).__init__()
-        self.n_inputs = n_inputs
+        self.n_inputs  = n_inputs
+        self.n_outputs = n_outputs
         self.fc2 = nn.Linear(self.n_inputs, h_sz)
-        self.fc3 = nn.Linear(h_sz, 1)
+        self.fc3 = nn.Linear(h_sz, self.n_outputs)
 
     def forward(self, x):
         x = F.relu(self.fc2(x))
@@ -31,16 +33,17 @@ class FCBIG(nn.Module):
         return x
 
 class MLPSMALL(nn.Module):
-    def __init__(self, n_inputs=4, layer_norm=False):
+    def __init__(self, n_inputs=4, layer_norm=False, n_outputs=1):
         super(MLPSMALL, self).__init__()
-        self.n_inputs = n_inputs
+        self.n_inputs   = n_inputs
         self.layer_norm = layer_norm
+        self.n_outputs  = n_outputs
 
         h_sz = 16
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
         self.tanh1 = torch.tanh
-        self.l3 = nn.Linear(h_sz, 1)
+        self.l3 = nn.Linear(h_sz, self.n_outputs)
     
     def forward(self, x):
         x = self.l1(x)
@@ -50,10 +53,11 @@ class MLPSMALL(nn.Module):
         return x
 
 class MLP(nn.Module):
-    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False):
+    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False, n_outputs=1):
         super(MLP, self).__init__()
-        self.n_inputs = n_inputs
+        self.n_inputs   = n_inputs
         self.layer_norm = layer_norm
+        self.n_outputs  = n_outputs
 
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
@@ -61,7 +65,7 @@ class MLP(nn.Module):
         self.l2 = nn.Linear(h_sz, h_sz)
         self.ln2 = nn.LayerNorm(h_sz)
         self.tanh2 = torch.tanh
-        self.l3 = nn.Linear(h_sz, 1)
+        self.l3 = nn.Linear(h_sz, self.n_outputs)
     
     def forward(self, x):
         x = self.l1(x)

@@ -44,7 +44,7 @@ def NNSystem_(T):
             self.n_outputs = param_dims[-1][-1]
 
             # Optionally expose parameters in Context.
-            # TODO(rverkuil): Expose bindings for DeclareNnumericParameter and use that here.
+            # TODO(rverkuil): Expose bindings for DeclareNumericParameter and use that here.
             self.declare_params = declare_params
             self.params = None
             if self.declare_params:
@@ -84,11 +84,7 @@ def NNSystem_(T):
 
             # Possibly sync context.parameters -> self.network.parameters
             if self.declare_params and np_hash(self.params) != self.param_hash:
-                params_loaded = 0
-                for param in self.network.parameters():
-                    T_slice = np.array([self.get_params()[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
-                    param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
-                    params_loaded += param.data.nelement() 
+                nn_loader(self.get_params(), network)
 
             # Pack input
             in_list = []
@@ -122,6 +118,14 @@ def NNSystem_(T):
 # Default instantiation.
 NNSystem = NNSystem_[None]
 
+def nn_loader(param_list, network):
+    params_loaded = 0
+    for param in network.parameters():
+        #T_slice = np.array([self.get_params()[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
+        T_slice = np.array([param_list[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
+        param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
+        params_loaded += param.data.nelement() 
+
 def NNInferenceHelper_double(network, in_list, debug=False):
     # Ensure that all network weights are doubles.
     network = network.double()
@@ -143,7 +147,7 @@ def NNInferenceHelper_double(network, in_list, debug=False):
     return [out]
 
 
-def NNInferenceHelper_autodiff(network, in_list, param_list=None, debug=False):
+def NNInferenceHelper_autodiff(network, in_list, param_list=[], debug=False):
     # Ensure that all network weights are doubles.
     network = network.double()
 
@@ -152,7 +156,7 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=None, debug=False):
     torch_in = torch.tensor(just_values, dtype=torch.double, requires_grad=True)
     if debug: print("torch_in: ", torch_in) 
 
-    if param_list is not None:
+    if param_list:
         assert sum(param.nelement() for param in network.parameters()) == len(param_list)
         assert isinstance(param_list[0], AutoDiffXd)
         n_params = len(param_list)
@@ -185,7 +189,7 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=None, debug=False):
         
         # Fill the graph with gradients with respect to output y_j.
         # https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
-        output_selector = torch.zeros(1, n_outputs, dtype=torch.double)
+        output_selector = torch.zeros(n_outputs, dtype=torch.double)
         output_selector[j] = 1. # Set the output we want a derivative w.r.t. to 1.
         torch_out.backward(output_selector, retain_graph=True) # TODO!! will need to zero some gradients when i test multiple outputs I think!!!
 
@@ -196,7 +200,7 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=None, debug=False):
             if debug: print("dy_jdu_a[i] * u_i_deriv = ", dy_jdu[i], " * ",  u_i_deriv)
             y_j_deriv += dy_jdu[i] * u_i_deriv;
 
-        if param_list is not None:
+        if param_list:
             dy_jdp_list = []
             for param in network.parameters():
                 if param.grad is None:
