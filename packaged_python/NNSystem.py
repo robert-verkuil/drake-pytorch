@@ -46,7 +46,7 @@ def NNSystem_(T):
             # Optionally expose parameters in Context.
             # TODO(rverkuil): Expose bindings for DeclareNumericParameter and use that here.
             self.declare_params = declare_params
-            self.params = None
+            self.params = []
             if self.declare_params:
                 params = np.hstack([param.clone().detach().numpy().flatten() for param in self.network.parameters()])
                 self.set_params(params)
@@ -100,9 +100,7 @@ def NNSystem_(T):
                 if self.declare_params and isinstance(self.get_params()[0], AutoDiffXd):
                     # Make sure derivatives vectors have the same size.
                     assert len(in_list[0].derivatives()) == len(self.get_params()[0].derivatives())
-                    out_list = NNInferenceHelper_autodiff(self.network, in_list, param_list=self.get_params())
-                else:
-                    out_list = NNInferenceHelper_autodiff(self.network, in_list)
+                out_list = NNInferenceHelper_autodiff(self.network, in_list, param_list=self.get_params())
             else:
                 out_list = NNInferenceHelper_double(self.network, in_list)
 
@@ -115,16 +113,18 @@ def NNSystem_(T):
 
     return Impl
 
+
 # Default instantiation.
 NNSystem = NNSystem_[None]
+
 
 def nn_loader(param_list, network):
     params_loaded = 0
     for param in network.parameters():
-        #T_slice = np.array([self.get_params()[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
         T_slice = np.array([param_list[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
         param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
         params_loaded += param.data.nelement() 
+
 
 def NNInferenceHelper_double(network, in_list, debug=False):
     # Ensure that all network weights are doubles.
@@ -160,13 +160,12 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=[], debug=False):
         assert sum(param.nelement() for param in network.parameters()) == len(param_list)
         assert isinstance(param_list[0], AutoDiffXd)
         n_params = len(param_list)
-        # param_values = np.array([param.value() for param in param_list])
 
     # Run the forward pass.
     # We'll do the backward pass(es) when we calculate output and it's gradients.
     torch_out = network.forward(torch_in)
     if debug: print("torch_out: ", torch_out)
-    
+
     # Do derivative calculation and pack into the output vector.
     # Because neural network might have multiple outputs, I can't simply use net.backward() with no argument.
     # Instead need to follow the advice here:
@@ -178,6 +177,11 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=[], debug=False):
 
     # Calculate the AutoDiff Vector for each output of the neural network.
     for j in range(n_outputs):
+        # Clear out all the existing grads
+        network.zero_grad()
+        if torch_in.grad is not None:
+            torch_in.grad.zero_()
+
         if debug: print("\niter j: ", j)
         y_j_value = torch_out[j].clone().detach().numpy()
         # Equation: y.derivs = dydu*u.derivs() + dydp*p.derivs()
@@ -191,16 +195,19 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=[], debug=False):
         # https://discuss.pytorch.org/t/clarification-using-backward-on-non-scalars/1059
         output_selector = torch.zeros(n_outputs, dtype=torch.double)
         output_selector[j] = 1. # Set the output we want a derivative w.r.t. to 1.
-        torch_out.backward(output_selector, retain_graph=True) # TODO!! will need to zero some gradients when i test multiple outputs I think!!!
+        torch_out.backward(output_selector, retain_graph=True)
 
         # Calculate the contribution to y_j.derivs w.r.t all the inputs.
         dy_jdu = torch_in.grad.numpy() # From Torch, give us back a numpy object
         for i in range(n_inputs):
             u_i_deriv = in_list[i].derivatives()
-            if debug: print("dy_jdu_a[i] * u_i_deriv = ", dy_jdu[i], " * ",  u_i_deriv)
+            if debug: print("dy_jdu[i] * u_i_deriv = ", dy_jdu[i], " * ",  u_i_deriv)
             y_j_deriv += dy_jdu[i] * u_i_deriv;
 
+        # Optionally add contribution of parameter gradients.
         if param_list:
+
+            # Extract all the gradients from the network
             dy_jdp_list = []
             for param in network.parameters():
                 if param.grad is None:
@@ -220,8 +227,7 @@ def NNInferenceHelper_autodiff(network, in_list, param_list=[], debug=False):
                 y_j_deriv += dy_jdp[k] * p_k_deriv;
 
         if debug: print("putting into output: ", y_j_value, ", ", y_j_deriv)
-        tmp = AutoDiffXd(y_j_value, y_j_deriv)
-        out_list[j] = tmp
+        out_list[j] = AutoDiffXd(y_j_value, y_j_deriv)
 
     return out_list
 

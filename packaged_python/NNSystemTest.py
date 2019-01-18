@@ -69,8 +69,8 @@ np.testing.assert_allclose(out_list_double, [elem.value() for elem in out_list_a
 
 
 def finite_difference_check_autodiffs(autodiff_params=False, debug=False):
-    NUM_INPUTS   = 4
-    NUM_OUTPUTS  = 1
+    NUM_INPUTS   = 3
+    NUM_OUTPUTS  = 3
     NETS_TO_TEST = [
                     FC,
                     FCBIG,
@@ -89,12 +89,15 @@ def finite_difference_check_autodiffs(autodiff_params=False, debug=False):
         n_outputs    = param_dims[-1][-1]
         total_params = n_inputs + n_params if autodiff_params else n_inputs
         param_list   = []
-        if debug: print("net params: ", list(network.parameters()))
 
         def one_hot(i, N):
             ret = np.zeros(N)
             ret[i] = 1
             return ret
+
+        if debug:
+            for param in network.parameters():
+                torch.nn.init.uniform_(param.data, 1, 1)
 
         # Make total_param number of AutoDiffXd's, with (seeded) random values.
         # Set derivatives array to length total_param with only index i set for ith AutoDiff.
@@ -103,6 +106,7 @@ def finite_difference_check_autodiffs(autodiff_params=False, debug=False):
         if autodiff_params:
             values = np.hstack(param.clone().detach().numpy().flatten() for param in network.parameters())
             param_list = [AutoDiffXd(values[i], one_hot(n_inputs+i, total_params)) for i in range(n_params)]
+            nn_loader(param_list, network)
 
         # First, generate all the AutoDiffXd outputs.
         out_list = NNInferenceHelper_autodiff(network, in_list, param_list=param_list, debug=debug)
