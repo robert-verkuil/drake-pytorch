@@ -11,11 +11,13 @@ from pydrake.all import (
     DiagramBuilder, SignalLogger, Simulator, VectorSystem,
 )
 
-from nn_system.NNSystemHelper import (
+from NNSystemHelper import (
     make_NN_constraint,
 )
 
-from nn_system.networks import *
+import sys, os
+sys.path.append('..')
+from networks import *
 
 num_inputs = 1
 num_states = 4
@@ -23,7 +25,8 @@ num_states = 4
 for kNetConstructor in [FC, FCBIG, MLPSMALL, MLP]:
     num_params = sum(tensor.nelement() for tensor in kNetConstructor().parameters())
     total_params = sum((num_inputs, num_states, num_params))
-    print("total params: ", total_params, end='')
+    print("total params: ", total_params, end='\t')
+    sys.stdout.flush()
 
     constraint = make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params)
 
@@ -38,10 +41,12 @@ for kNetConstructor in [FC, FCBIG, MLPSMALL, MLP]:
         ret[i] = 1
         return ret
 
+    print("ad pass")
     uxT = np.array([AutoDiffXd(values[i], one_hot(i, total_params)) for i in range(total_params)])
     out = copy.deepcopy(constraint(uxT)[0])
     out_value = out.value()
     out_derivatives = out.derivatives()
+    print("ad pass")
 
     # f     : function(np.array of AutoDiffXd's) -> array of size one of AutoDiffXd
     # x     : np.array of AutoDiffXd at which to calculate finite_difference
@@ -54,6 +59,8 @@ for kNetConstructor in [FC, FCBIG, MLPSMALL, MLP]:
         x_lo[idx] -= delta
         return ( f(x_hi)[0].value() - f(x_lo)[0].value() ) / (2*delta)
 
+    print("testing", end='')
+    sys.stdout.flush()
     for idx in range(total_params):    
         # Do finite difference calculation and compare against gradient
         grad = finite_difference(constraint, uxT, idx, 0.1)

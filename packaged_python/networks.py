@@ -33,13 +33,12 @@ class FCBIG(nn.Module):
         return x
 
 class MLPSMALL(nn.Module):
-    def __init__(self, n_inputs=4, layer_norm=False, n_outputs=1):
+    def __init__(self, n_inputs=4, h_sz=16, layer_norm=False, n_outputs=1):
         super(MLPSMALL, self).__init__()
         self.n_inputs   = n_inputs
         self.layer_norm = layer_norm
         self.n_outputs  = n_outputs
 
-        h_sz = 16
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
         self.tanh1 = torch.tanh
@@ -53,7 +52,7 @@ class MLPSMALL(nn.Module):
         return x
 
 class MLP(nn.Module):
-    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False, n_outputs=1):
+    def __init__(self, n_inputs=4, h_sz=16, layer_norm=False, n_outputs=1):
         super(MLP, self).__init__()
         self.n_inputs   = n_inputs
         self.layer_norm = layer_norm
