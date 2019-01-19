@@ -10,6 +10,7 @@ from multiple_traj_opt import (
     initial_conditions_Russ,
     initial_conditions_grid,
     initial_conditions_random,
+    initial_conditions_random_all_dims,
 )
 from nn_system.networks import *
 
@@ -23,6 +24,22 @@ import torch.nn.functional as F
 from nn_system.networks import FC, FCBIG, MLPSMALL, MLP
 import copy
 import time
+
+from pydrake.all import (
+    DiagramBuilder,
+    DirectCollocation, 
+    DynamicProgrammingOptions,
+    FittedValueIteration,
+    FloatingBaseType,
+    PeriodicBoundaryCondition,
+    PiecewisePolynomial, 
+    RigidBodyTree,
+    RigidBodyPlant,
+    SignalLogger,
+    Simulator,
+    SolutionResult,
+    VectorSystem
+)
 
 # SUPER HACK - because for some reason you can't keep around a reference to a dircol?
 class FakeDircol():
@@ -49,12 +66,17 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
     optimized_trajs, dircols, results = [], [], []
     for i, ic in enumerate(ic_list):
         start = time.time()
+        if 'target_trajs' in kwargs:
+            target_traj = kwargs['target_trajs'][i]
+        else:
+            target_traj = []
         dircol, result = do_dircol_fn(
                             ic           = ic,
                             warm_start   = "linear",
                             seed         = 1776,
+                            target_traj  = target_traj,
                             **kwargs)
-        print("{} took {}".format(i, time.time() - start))
+        #print("{} took {}".format(i, time.time() - start))
         dircols.append(FakeDircol(dircol))
         results.append(result)
 
@@ -73,10 +95,15 @@ def f(inp):
     (do_dircol_fn, i, ic, kwargs) = inp
     # print(kwargs)
     start = time.time()
+    if 'target_trajs' in kwargs:
+        target_traj = kwargs['target_trajs'][i]
+    else:
+        target_traj = []
     dircol, result = do_dircol_fn(
                         ic           = ic,
                         warm_start   = "linear",
                         seed         = 1776,
+                        target_traj  = target_traj,
                         **kwargs) # <- will this work?
     print("{} took {}".format(i, time.time() - start))
 
@@ -207,12 +234,12 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
 def visualize_intermediate_results(trajectories, 
                                    num_trajectories,
                                    num_samples,
+                                   expmt="pendulum",
                                    network=None, 
                                    ic_list=None,  
                                    ic_scale=1., 
                                    WALLCLOCK_TIME_LIMIT=1,
                                    constructor=lambda: FCBIG(2, 128),
-                                   expmt="pendulum",
                                    plot_type="state_scatter"):
     vis_ic_list = ic_list
     vis_trajectories = trajectories
@@ -246,41 +273,161 @@ def visualize_intermediate_results(trajectories,
 #     display.clear_output(wait=True)
 
 
-def do_igor_optimization():
-    net = FCBIG(2, 128)
-    # net = MLPSMALL(2)
-    # net = MLP(2, 16)
+from traj.vi_utils import (
+    make_dircol_pendulum,
+    do_dircol_pendulum,
+    make_dircol_cartpole,
+    do_dircol_cartpole,
+)
+from nn_system.NNSystemHelper import (
+    create_nn,
+    create_nn_policy_system,
+    make_NN_constraint,
+    FCBIG,
+)
+def nn_loader(param_list, network):
+    params_loaded = 0
+    for param in network.parameters():
+        T_slice = np.array([param_list[i] for i in range(params_loaded, params_loaded+param.data.nelement())])
+        param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
+        params_loaded += param.data.nelement()
+
+def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specify the target trajectory
+    alpha, lam, eta = 10., 10.**2, 10.**-2
+    dircol = dircol_gen_fn(**kwargs) # Will be using all the default settings in this thing
+    
+    # Create a network
+    net = kwargs['kNetConstructor']()
+    nn_loader(kwargs['net_params'], net)
+
+    target_traj = kwargs['target_traj']
+    #print(target_traj)
+    for i in range(kwargs['num_samples']):
+        # Now let's add on the policy deviation cost... 
+        num_params = 0
+        pi_cost = make_NN_constraint(lambda: 0, kwargs['num_inputs'], kwargs['num_states'], num_params, network=net, do_asserts=False)
+#        dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux)**2, np.hstack([dircol.input(i), dircol.state(i)]))
+
+        # ...and the trajectory proximity cost.
+        x = dircol.state(i)
+        target = target_traj[1][i] # Get i'th knot's state vector
+        #print('target: ', target)
+        dircol.AddCost(eta/2. * (x - target).dot(x - target)) # L2 penalty on staying close to the last traj's state here.
+
+    result = dircol.Solve()
+    if result != SolutionResult.kSolutionFound:
+        print("result={}".format(result))
+    return dircol, result
+
+# If naive is true, it just does parallel trajectory optimization and supervised learning.
+# Else, it does Igor's method.
+def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_start=None, **kwargs):
+    assert expmt in ("pendulum", "cartpole")
+    if expmt == "pendulum":
+        do_dircol_fn  = do_dircol_pendulum
+        dircol_gen_fn = make_dircol_pendulum
+        num_inputs  = 1
+        num_states  = 2
+        num_samples = 32
+        EPOCHS      = 50
+        lr          = 1e-2
+        plot_type   = "state_scatter"
+        WALLCLOCK_TIME_LIMIT = 15
+        if ic_list == None:
+            num_trajectories = 100 #50**2
+            ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
+    elif expmt == "cartpole":
+        do_dircol_fn = do_dircol_cartpole
+        dircol_gen_fn = make_dircol_cartpole
+        num_inputs  = 1
+        num_states  = 4
+        num_samples = 21
+        EPOCHS      = 50
+        lr          = 1e-2
+        plot_type   = "tip_scatter"
+        WALLCLOCK_TIME_LIMIT = 60
+        if ic_list == None:
+            num_trajectories = 100 #100**2
+            ic_list = initial_conditions_random_all_dims(num_trajectories, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
+
 
     ##### IGOR'S BLOCK-ALTERNATING METHOD
     # Either A) you pick one huge block of initial conditions and stick to them throughout the optimization process
     # OR B) Keep bouncing around randomly chosen trajectories? (could be similarly huge or smaller...)
-    # ^ Let's make the above easily flag switchable!!!
+    # ^ accomplish the above via an outer loop over this function, so that we can use that outer loop for the Russ method, too.
 
-    # TODO...
-    # trajs = igor_traj_opt(ic_list, net)  <- yeah should we think about this now??
-
-    # Minibatch optimization... Let's not do any warm starting for Igor's...
-    # plt.figure()
+    # Do a warm start via an unconstrained optimization is nothing is given to us
+    if warm_start is None:
+        #optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
+        print("doing warm start")
+        optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
+        print("finished warm start")
+        kwargs['target_trajs']    = optimized_trajs
+    
     total_iterations = 1
-    num_trajectories = 961
     while total_iterations > 0:
         total_iterations -= 1
-    #     ic_list = initial_conditions_grid(num_trajectories, (-math.pi, math.pi), (-5., 5.))
-        ic_list = initial_conditions_grid(num_trajectories, (0, 2*math.pi), (-5., 5.))
 
         # Basically exactly what I have now EXCEPT, DON'T Give the NN parameters to the optimizer!!!!!
         # So, actually might want to solve all the N trajectories in parallel/simultaneously!
         # Just add proximity cost on their change from the last iteration...
         # ^ will this get 
-        trajectories = igor_traj_opt(ic_list, net) 
+        kwargs['num_samples']     = num_samples
+        kwargs['dircol_gen_fn']   = dircol_gen_fn
+        kwargs['num_inputs']      = num_inputs
+        kwargs['num_states']      = num_states
+        # I have to send the network constructor and weights separately because only pickalable things are sendable
+        # with Python's multiprocessing package...
+        kwargs['kNetConstructor'] = kNetConstructor
+        kwargs['net_params']      = np.hstack([param.data.numpy().flatten() for param in net.parameters()])
+        optimized_trajs, dircols, results = igor_traj_opt_serial(do_igor_dircol_fn, ic_list, **kwargs)
+        #optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
         
         # Will need to have access to the current state of the knot points, here...
         # Then will just do a fitting, (can even add in regularization for, like, free!)
         # With an additional knot penalty term and a proximity cost on difference in parameters from the last iteration...
-        igor_supervised_learning(trajectories, net, use_prox=False, iter_repeat=1000, EPOCHS=10, lr=1e-2)
+        if naive:
+            igor_supervised_learning_cuda(optimized_trajs, net, use_prox=False, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
+        else:
+            igor_supervised_learning_cuda(optimized_trajs, net, use_prox=True, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
+
         
-        # Is this even needed?
-        visualize_intermediate_results(vis_trajectories, network=net, ic_list=vis_ic_list, ic_scale=0.5)
-    #     visualize_intermediate_results(trajectories)#, network=net, ic_list=ic_list)
+        # Is this even needed? TODO: get the visualization working as well.
+#        vis_trajs = optimized_trajs
+        vis_trajs = []
+        visualize_intermediate_results(vis_trajs,
+                                       len(ic_list),
+                                       num_samples,
+                                       expmt=expmt,
+                                       plot_type=plot_type,
+                                       network=net.cpu(),
+                                       #ic_list=ic_list,
+                                       ic_list=ic_list[:10],
+                                       ic_scale=1.,
+                                       constructor=kNetConstructor,
+                                       WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
         
+
+# Will be using this function to try the minibatching + warm-starting approach 
+# over any functions that satisfy the interfaces laid out below.
+def mini_batch_and_warm_start(ic_gen, n_iters, inner_fn, network, warm_start_method, traj_bank):
+    for i in range(n_iters):
+        # Generate initial conditions
+        ic_list = ic_gen()
         
+        # Create some warm start trajectories, via some method
+        warm_start_trajs = warm_start_method(ic_list, traj_bank, network)
+
+        # Run the inner loop optimizer
+        trajectories = inner_fn(ic_list, network, warm_start_trajs)
+
+        # Store results
+        traj_bank.append(trajectories)
+
+
+
+
+
+
+
+

@@ -41,7 +41,7 @@ def create_nn_policy_system(kNetConstructor, params_list):
     return nn_policy
 
 import copy
-def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, do_asserts=False):
+def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, network=None, do_asserts=False):
     def constraint(uxT):
         # start = time.time()
     # ##############################
@@ -79,12 +79,15 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, do_a
             if do_asserts: np.testing.assert_array_equal(elem.derivatives(), one_hot)
         
         # Construct a model with params T
-        net = kNetConstructor()
-        params_loaded = 0
-        for param in net.parameters():
-            T_slice = np.array([T[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
-            param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
-            params_loaded += param.data.nelement() 
+        if network is None:
+            net = kNetConstructor()
+            params_loaded = 0
+            for param in net.parameters():
+                T_slice = np.array([T[i].value() for i in range(params_loaded, params_loaded+param.data.nelement())])
+                param.data = torch.from_numpy(T_slice.reshape(list(param.data.size())))
+                params_loaded += param.data.nelement() 
+        else:
+            net = network
             
         # Do forward pass.
         x_values = np.array([elem.value() for elem in x])
@@ -99,16 +102,18 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, do_a
         y_derivatives = np.zeros(n_derivatives)
         y_derivatives[:num_inputs] = np.zeros(num_inputs) # No gradient w.r.t. inputs yet.
         y_derivatives[num_inputs:num_inputs+num_states] = torch_in.grad
-        T_derivatives = []
-        for param in net.parameters():
-            if param.grad is None:
-                T_derivatives.append( [0.]*param.data.nelement() )
-            else:
-                if do_asserts: assert param.data.nelement() == param.grad.nelement()
-                if do_asserts: np.testing.assert_array_equal( list(param.data.size()), list(param.grad.size()) )
-                T_derivatives.append( param.grad.numpy().flatten() ) # Flatten will return a copy.
-        if do_asserts: assert np.hstack(T_derivatives).size == num_params
-        y_derivatives[num_inputs+num_states:] =  np.hstack(T_derivatives)
+        if num_params > 0:
+            print("no params case in make_NN_constraint!")
+            T_derivatives = []
+            for param in net.parameters():
+                if param.grad is None:
+                    T_derivatives.append( [0.]*param.data.nelement() )
+                else:
+                    if do_asserts: assert param.data.nelement() == param.grad.nelement()
+                    if do_asserts: np.testing.assert_array_equal( list(param.data.size()), list(param.grad.size()) )
+                    T_derivatives.append( param.grad.numpy().flatten() ) # Flatten will return a copy.
+            if do_asserts: assert np.hstack(T_derivatives).size == num_params
+            y_derivatives[num_inputs+num_states:] =  np.hstack(T_derivatives)
         
         y = AutoDiffXd(y_values, y_derivatives)
         
@@ -117,9 +122,10 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, do_a
         # print("constraint eval: ", end - start)
         if double_ver:
             ret = (u-y)[0].value()
-            #print("ret: ", ret)
+            #print("double ret: ", ret)
             return [ret]
-        return u - y
+        #print("ad ret: ", u - y)
+        return (u - y)[0]
     return constraint
 
 

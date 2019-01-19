@@ -39,7 +39,7 @@ vis_cb_counter = 0
 dircol = None
 plant = None
 context = None
-def do_dircol_pendulum(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_timestep=0.5, warm_start="linear", seed=1776, should_vis=False):
+def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_timestep=0.5, warm_start="linear", seed=1776, should_vis=False, target_traj=None, **kwargs):
     global dircol
     global plant
     global context
@@ -115,6 +115,23 @@ def do_dircol_pendulum(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_times
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
 
+    return dircol
+
+def do_dircol_pendulum(ic=(-1., 0.),
+                       num_samples=32,
+                       min_timestep=0.2,
+                       max_timestep=0.5,
+                       warm_start="linear",
+                       seed=1776,
+                       should_vis=False,
+                       target_traj=None,
+                       **kwargs):
+    dircol = make_dircol_pendulum(ic=ic,
+                                  num_samples=num_samples,
+                                  max_timestep=max_timestep,
+                                  warm_start=warm_start,
+                                  seed=seed,
+                                  should_vis=should_vis)
     result = dircol.Solve()
     if result != SolutionResult.kSolutionFound:
         print("result={}".format(result))
@@ -122,7 +139,7 @@ def do_dircol_pendulum(ic=(-1., 0.), num_samples=16, min_timestep=0.2, max_times
     return dircol, result
 
 
-def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=180.):
+def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=180., target_traj=None, **kwargs):
     global dircol
     global plant
     global context
@@ -257,14 +274,24 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
 
     # Factoriztion?
     # dircol.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
+    return dircol
 
+
+def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=180., target_traj=None):
+    dircol = make_dircol_cartpole(ic=ic,
+                                  num_samples=num_samples,
+                                  min_timestep=min_timestep,
+                                  max_timestep=max_timestep,
+                                  warm_start=warm_start,
+                                  seed=seed,
+                                  should_vis=should_vis,
+                                  torque_limit=torque_limit)
     result = dircol.Solve()
     if result != SolutionResult.kSolutionFound:
         print("result={}".format(result))
     # plt.legend()
 
     return dircol, result
-
 
 # Either ics or trajs should be not not None
 # so that we have something to rollout or directly plot
