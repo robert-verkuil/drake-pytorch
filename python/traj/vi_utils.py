@@ -91,6 +91,41 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
 #         initial_x_trajectory = PiecewisePolynomial.Cubic(breaks, x_knots, False)
 #         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
 
+    def cb(decision_vars):
+        global vis_cb_counter
+        vis_cb_counter += 1
+        if vis_cb_counter % 10 != 0:
+            return
+
+        # Get the total cost
+        all_costs = dircol.EvalBindings(dircol.GetAllCosts(), decision_vars)
+
+        # Get the total cost of the constraints.
+        # Additionally, the number and extent of any constraint violations.
+        violated_constraint_count = 0
+        violated_constraint_cost  = 0
+        constraint_cost           = 0
+        for constraint in dircol.GetAllConstraints():
+            val = dircol.EvalBinding(constraint, decision_vars)
+
+            # Consider switching to DoCheckSatisfied if you can find the binding...
+            nudge = 1e-1 # This much constraint violation is not considered bad...
+            lb = constraint.evaluator().lower_bound()
+            ub = constraint.evaluator().upper_bound()
+            good_lb = np.all( np.less_equal(lb, val+nudge) )
+            good_ub = np.all( np.greater_equal(ub, val-nudge) )
+            if not good_lb or not good_ub:
+                # print("{} <= {} <= {}".format(lb, val, ub))
+                violated_constraint_count += 1
+                # violated_constraint_cost += np.sum(np.abs(val))
+                if not good_lb:
+                    violated_constraint_cost += np.sum(np.abs(lb - val))
+                if not good_ub:
+                    violated_constraint_cost += np.sum(np.abs(val - ub))
+            constraint_cost += np.sum(np.abs(val))
+        print("total cost: {: .2f} | \tconstraint {: .2f} \tbad {}, {: .2f}".format(
+            sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
+    #dircol.AddVisualizationCallback(cb, dircol.decision_variables())
     
     def MyVisualization(sample_times, values):
         global vis_cb_counter
@@ -110,10 +145,26 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
         dircol.AddStateTrajectoryCallback(MyVisualization)
 
     from pydrake.all import (SolverType)
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
+
     dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             20.0) # default="9999999.0" # Very aggressive cutoff...
+
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
+
+    # Factoriztion?
+    # dircol.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
 
     return dircol
 
@@ -233,7 +284,7 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
             constraint_cost += np.sum(np.abs(val))
         print("total cost: {: .2f} | \tconstraint {: .2f} \tbad {}, {: .2f}".format(
             sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
-    # dircol.AddVisualizationCallback(cb, dircol.decision_variables())
+    #dircol.AddVisualizationCallback(cb, dircol.decision_variables())
 
     def MyVisualization(sample_times, values):
         def state_to_tip_coord(state_vec):
@@ -260,10 +311,10 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
 
     from pydrake.all import (SolverType)
     dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-1) # default="1.0e-6" was 5.0e-1
     dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
-    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             20.0) # default="9999999.0" # Very aggressive cutoff...
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-1) # default="1.0e-6" was 5.0e-1
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             12.0) # default="9999999.0" # Very aggressive cutoff...
 
     dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
     # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"

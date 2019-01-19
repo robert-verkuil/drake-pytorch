@@ -2,6 +2,7 @@ from __future__ import print_function, absolute_import
 
 import matplotlib.pyplot as plt
 import math
+import multiprocessing
 import numpy as np
 
 
@@ -516,7 +517,7 @@ class MultipleTrajOpt(object):
                 print("quit simulation early at {}/{} due to exceeding time limit".format(
                     simulator.get_context().get_time(), h_sol*self.num_samples))
                 break
-            simulator.StepTo(simulator.get_context().get_time()+0.001)
+            simulator.StepTo(simulator.get_context().get_time()+0.1)
         # simulator.StepTo(h_sol*self.num_samples)
 
         t_samples = logger.sample_times()

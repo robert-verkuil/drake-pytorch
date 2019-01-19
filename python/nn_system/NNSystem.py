@@ -27,7 +27,6 @@ def NNSystem_(T):
             # Getting relavent qtys out of pytorch_nn_object, for port setup.
             self.network = pytorch_nn_object.double() # Needs to support an Eval method?
             self.n_inputs = list(pytorch_nn_object.parameters())[0].size()[-1]
-            print(self.n_inputs)
             self.n_outputs = 1
 
             # Input Ports

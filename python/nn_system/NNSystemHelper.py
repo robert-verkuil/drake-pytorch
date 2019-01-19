@@ -41,18 +41,14 @@ def create_nn_policy_system(kNetConstructor, params_list):
     return nn_policy
 
 import copy
-def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, network=None, do_asserts=False):
+def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, network=None, do_asserts=False, L2=False):
     def constraint(uxT):
         # start = time.time()
-    # ##############################
-    # #    JUST FOR DEBUGGING!
-    # ##############################
-    #     for elem in uxT:
-    #         print(elem.derivatives())
-    #     print()
-    #     return uxT
-    # prog.AddConstraint(constraint, -np.array([.1]*5), np.array([.1]*5), np.hstack((prog.input(0), prog.state(0))))
-    # ##############################
+        ##############################
+        #    JUST FOR DEBUGGING!
+        ##############################
+        #return uxT[0]
+        ##############################
         # Force use of AutoDiff Values, so that EvalBinding works (it normally only uses doubles...)
         double_ver = False
         if uxT.dtype != np.object:
@@ -122,10 +118,16 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, netw
         # print("constraint eval: ", end - start)
         if double_ver:
             ret = (u-y)[0].value()
+            if L2:
+                ret = ret * ret
             #print("double ret: ", ret)
-            return [ret]
-        #print("ad ret: ", u - y)
-        return (u - y)[0]
+            return ret
+        ret = (u - y)[0]
+        if L2:
+            ret = ret * ret
+        #print("ad ret: ", ret)
+        #return 0. if double_ver else uxT[0]
+        return ret
     return constraint
 
 

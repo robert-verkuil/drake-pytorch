@@ -2,6 +2,7 @@ from __future__ import print_function, absolute_import
 from IPython import display
 import math
 import matplotlib.pyplot as plt
+import multiprocessing
 import numpy as np
 
 from multiple_traj_opt import (
@@ -83,6 +84,11 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
         times   = dircol.GetSampleTimes().T
         x_knots = dircol.GetStateSamples().T
         u_knots = dircol.GetInputSamples().T
+        # TODO: remove
+        # if i == 0:
+        #     print("0 u_knots = ", u_knots)
+        #     if target_traj != []:
+        #         print("target_traj u_knots = ", target_traj[2])
         optimized_traj = (times, x_knots, u_knots)
         optimized_trajs.append(optimized_traj)
         if (i+1) % 10 == 0:
@@ -105,7 +111,8 @@ def f(inp):
                         seed         = 1776,
                         target_traj  = target_traj,
                         **kwargs) # <- will this work?
-    print("{} took {}".format(i, time.time() - start))
+    if i % 10 == 0:
+        print("{} took {}".format(i, time.time() - start))
 
     times   = dircol.GetSampleTimes().T
     x_knots = dircol.GetStateSamples().T
@@ -231,6 +238,15 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
             running_loss = 0.0
     print('Finished Training')
     
+
+def parallel_rollout_helper(inp):
+    (dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) = inp
+    _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol,
+                                                                            params_list,
+                                                                            ic=np.array(ic)*ic_scale,
+                                                                            WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+    return x_knots
+
 def visualize_intermediate_results(trajectories, 
                                    num_trajectories,
                                    num_samples,
@@ -240,12 +256,15 @@ def visualize_intermediate_results(trajectories,
                                    ic_scale=1., 
                                    WALLCLOCK_TIME_LIMIT=1,
                                    constructor=lambda: FCBIG(2, 128),
-                                   plot_type="state_scatter"):
+                                   plot_type="state_scatter",
+                                   # parallel=False):
+                                   parallel=True):
     vis_ic_list = ic_list
     vis_trajectories = trajectories
-    if len(ic_list) > 25:
+    import multiprocessing
+    if len(ic_list) > multiprocessing.cpu_count()-1:
         print("truncating")
-        idcs = np.random.choice(len(ic_list), 25, replace=False)
+        idcs = np.random.choice(len(ic_list), multiprocessing.cpu_count()-1, replace=False)
         vis_ic_list = list((ic_list[idx] for idx in idcs))
         if vis_trajectories:
             vis_trajectories = list((trajectories[idx] for idx in idcs))
@@ -261,12 +280,34 @@ def visualize_intermediate_results(trajectories,
     
         if vis_ic_list is None:
             vis_ic_list = [x_knots[0] for (_, x_knots, _) in vis_trajectories] # Scary indexing get's first x_knot of each traj.
-        for ic in vis_ic_list:
-#             h_sol = (0.2+0.5)/2 # TODO: control this better
-            h_sol = 0.5
-            _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol, params_list, ic=np.array(ic)*ic_scale, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
-            print("last x_knot: ", x_knots.T[-1])
-            plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
+
+#       h_sol = (0.2+0.5)/2 # TODO: control this better
+        h_sol = 0.5
+
+        # Do rollouts in serial or in parallel
+        if not parallel:
+            for ic in vis_ic_list:
+                _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol,
+                                                                                        params_list,
+                                                                                        ic=np.array(ic)*ic_scale,
+                                                                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+                print("last x_knot: ", x_knots.T[-1])
+                plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
+        else:
+            all_x_knots = []
+            import multiprocessing
+            from multiprocessing import Pool
+
+            p = Pool(multiprocessing.cpu_count() - 1)
+            # Can dummy_mto be serialized if it contains a network?
+            inputs = [(dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) for i, ic in enumerate(ic_list)]
+            all_x_knots = p.map(parallel_rollout_helper, inputs)
+            p.close() # good?
+            assert len(all_x_knots) == len(ic_list)
+
+            for x_knots in all_x_knots:
+                plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
+
     plt.show()
     # Enable this to clear each plot on the next draw() call.
 #     display.display(plt.gcf())
@@ -301,22 +342,42 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
     nn_loader(kwargs['net_params'], net)
 
     target_traj = kwargs['target_traj']
-    #print(target_traj)
-    for i in range(kwargs['num_samples']):
-        # Now let's add on the policy deviation cost... 
-        num_params = 0
-        pi_cost = make_NN_constraint(lambda: 0, kwargs['num_inputs'], kwargs['num_states'], num_params, network=net, do_asserts=False)
-#        dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux)**2, np.hstack([dircol.input(i), dircol.state(i)]))
+    if not kwargs['naive']:
+        for i in range(kwargs['num_samples']):
+            # Now let's add on the policy deviation cost... 
+            num_params = 0
+            pi_cost = make_NN_constraint(lambda: 0, kwargs['num_inputs'], kwargs['num_states'], num_params, network=net, do_asserts=False, L2=True)
+            dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux), np.hstack([dircol.input(i), dircol.state(i)]))
 
-        # ...and the trajectory proximity cost.
-        x = dircol.state(i)
-        target = target_traj[1][i] # Get i'th knot's state vector
-        #print('target: ', target)
-        dircol.AddCost(eta/2. * (x - target).dot(x - target)) # L2 penalty on staying close to the last traj's state here.
+            # ...and the trajectory proximity cost.
+            x = dircol.state(i)
+            target = target_traj[1][i] # Get i'th knot's state vector
+            #print('target: ', target)
+            dircol.AddCost(eta/2. * (x - target).dot(x - target)) # L2 penalty on staying close to the last traj's state here.
 
+    # Can maybe put special settings here that will make pendulum 
+    # and cartpole dircols train faster in Igor mode?
+    if kwargs['expmt'] == 'pendulum':
+        pass
+    elif kwargs['expmt'] == 'cartpole':
+        pass
+
+    # TODO: Add a retry here to try and get success
     result = dircol.Solve()
+    #if result != SolutionResult.kSolutionFound:
     if result != SolutionResult.kSolutionFound:
-        print("result={}".format(result))
+        #print("result={}".format(result))
+        if result == SolutionResult.kInfeasibleConstraints:
+            #print("result={}, retrying".format(result))
+            # Up the accuracy.
+            from pydrake.all import (SolverType)
+            dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
+            dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-3) # default="1.0e-6" was 5.0e-1
+            dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
+            dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-3) # default="1.0e-6" was 5.0e-1
+            result = dircol.Solve()
+            if result != SolutionResult.kSolutionFound:
+                print("retry result={}".format(result))
     return dircol, result
 
 # If naive is true, it just does parallel trajectory optimization and supervised learning.
@@ -329,26 +390,28 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
         num_inputs  = 1
         num_states  = 2
         num_samples = 32
-        EPOCHS      = 50
+        EPOCHS      = 5 #50
         lr          = 1e-2
         plot_type   = "state_scatter"
         WALLCLOCK_TIME_LIMIT = 15
         if ic_list == None:
-            num_trajectories = 100 #50**2
+            num_trajectories = 144 #50**2
             ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
+        total_iterations = 3
     elif expmt == "cartpole":
         do_dircol_fn = do_dircol_cartpole
         dircol_gen_fn = make_dircol_cartpole
         num_inputs  = 1
         num_states  = 4
         num_samples = 21
-        EPOCHS      = 50
+        EPOCHS      = 5 #15 #50
         lr          = 1e-2
         plot_type   = "tip_scatter"
         WALLCLOCK_TIME_LIMIT = 60
         if ic_list == None:
-            num_trajectories = 100 #100**2
+            num_trajectories = 10 #225 #100**2
             ic_list = initial_conditions_random_all_dims(num_trajectories, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
+        total_iterations = 3
 
 
     ##### IGOR'S BLOCK-ALTERNATING METHOD
@@ -357,14 +420,13 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
     # ^ accomplish the above via an outer loop over this function, so that we can use that outer loop for the Russ method, too.
 
     # Do a warm start via an unconstrained optimization is nothing is given to us
-    if warm_start is None:
-        #optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
+    if warm_start is None and not naive:
         print("doing warm start")
-        optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
+        #optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
+        optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
         print("finished warm start")
         kwargs['target_trajs']    = optimized_trajs
     
-    total_iterations = 1
     while total_iterations > 0:
         total_iterations -= 1
 
@@ -380,16 +442,22 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
         # with Python's multiprocessing package...
         kwargs['kNetConstructor'] = kNetConstructor
         kwargs['net_params']      = np.hstack([param.data.numpy().flatten() for param in net.parameters()])
-        optimized_trajs, dircols, results = igor_traj_opt_serial(do_igor_dircol_fn, ic_list, **kwargs)
-        #optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
+        kwargs['naive'] = naive
+        kwargs['expmt'] = expmt
+        #optimized_trajs, dircols, results = igor_traj_opt_serial(do_igor_dircol_fn, ic_list, **kwargs)
+        optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
         
         # Will need to have access to the current state of the knot points, here...
         # Then will just do a fitting, (can even add in regularization for, like, free!)
         # With an additional knot penalty term and a proximity cost on difference in parameters from the last iteration...
+        trajs_to_fit = []
+        for traj, result in zip(optimized_trajs, results):
+            if result == SolutionResult.kSolutionFound:
+                trajs_to_fit.append(traj)
         if naive:
-            igor_supervised_learning_cuda(optimized_trajs, net, use_prox=False, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
+            igor_supervised_learning_cuda(trajs_to_fit, net, use_prox=False, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
         else:
-            igor_supervised_learning_cuda(optimized_trajs, net, use_prox=True, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
+            igor_supervised_learning_cuda(trajs_to_fit, net, use_prox=True, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
 
         
         # Is this even needed? TODO: get the visualization working as well.
@@ -401,8 +469,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
                                        expmt=expmt,
                                        plot_type=plot_type,
                                        network=net.cpu(),
-                                       #ic_list=ic_list,
-                                       ic_list=ic_list[:10],
+                                       ic_list=ic_list,
+                                       #ic_list=ic_list[:multiprocessing.cpu_count()-1],
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
