@@ -1,0 +1,33 @@
+digraph _29227408 {
+rankdir=LR
+subgraph cluster29227408diagram {
+color=black
+concentrate=true
+label="29227408";
+subgraph cluster29227408inputports {
+rank=same
+color=lightgrey
+style=filled
+label="input ports"
+}
+subgraph cluster29227408outputports {
+rank=same
+color=lightgrey
+style=filled
+label="output ports"
+}
+subgraph cluster29227408subsystems {
+color=white
+label=""
+28066960 [shape=record, label="plant|{{<u0>geometry_query|<u1>acrobot_actuation} | {<y0>geometry_pose|<y1>continuous_state|<y2>acrobot_continuous_state|<y3>acrobot_generalized_contact_forces|<y4>contact_results}}"];
+34381552 [shape=record, label="scene_graph|{{<u0>Source_2_pose} | {<y0>lcm_visualization|<y1>query}}"];
+70673568 [shape=record, label="drake/pydrake/(anonymous)/Impl@00000000043664a0|{{<u0>NN_in} | {<y0>NN_out}}"];
+68149376 [shape=record, label="meshcat_visualizer|{{<u0>lcm_visualization} | {}}"];
+34381552:y1 -> 28066960:u0;
+70673568:y0 -> 28066960:u1;
+28066960:y0 -> 34381552:u0;
+34381552:y0 -> 68149376:u0;
+28066960:y1 -> 70673568:u0;
+}
+}
+}

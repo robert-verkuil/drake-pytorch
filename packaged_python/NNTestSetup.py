@@ -1,26 +1,20 @@
 import numpy as np
 import time
 
-from NNSystem import NNSystem
-
-from pydrake.multibody.parsing import (
-    Parser,
-    PackageMap,
-)
-from pydrake.multibody.multibody_tree.multibody_plant import (
-    MultibodyPlant,
-)
-from pydrake.multibody.multibody_tree import (
-    ModelInstanceIndex,
-)
-from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
-from pydrake.systems.framework import (
+from pydrake.all import (
+    AddMultibodyPlantSceneGraph,
     DiagramBuilder,
+    MeshcatVisualizer,
+    ModelInstanceIndex,
+    MultibodyPlant,
+    PackageMap,
+    Parser,
+    SceneGraph,
+    Simulator,
 )
-from pydrake.geometry import SceneGraph
-from pydrake.systems.analysis import Simulator
-from pydrake.common import FindResourceOrThrow
 
+from networks import FCBIG
+from NNSystem import NNSystem
 
 def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
     ''' Renders the Drake system (presumably a diagram,
@@ -38,30 +32,17 @@ class NNTestSetup:
 
     def RunSimulation(self, real_time_rate=1.0):
         '''
-        The Princess Diaries was a good movie.
+        Here we test using the NNSystem in a Simulator to drive
+        an acrobot.
         '''
-        builder = DiagramBuilder()
-        scene_graph = builder.AddSystem(SceneGraph())
-
-
-        # object_file_path = FindResourceOrThrow(
-        #     "drake/examples/manipulation_station/models/061_foam_brick.sdf")
-        # sdf_file = FindResourceOrThrow("drake/multibody/benchmarks/acrobot/acrobot.sdf")
-        # urdf_file = FindResourceOrThrow("drake/multibody/benchmarks/acrobot/acrobot.urdf")
         sdf_file = "assets/acrobot.sdf"
         urdf_file = "assets/acrobot.urdf"
-        plant = builder.AddSystem(MultibodyPlant())
-        plant.RegisterAsSourceForSceneGraph(scene_graph)
-        Parser(plant, scene_graph).AddModelFromFile(sdf_file)
-        plant.Finalize(scene_graph)
-        assert plant.geometry_source_is_registered()
-        builder.Connect(
-            plant.get_geometry_poses_output_port(),
-            scene_graph.get_source_pose_port(plant.get_source_id()))
-        builder.Connect(
-            scene_graph.get_query_output_port(),
-            plant.get_geometry_query_input_port())
 
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder)
+        parser = Parser(plant=plant, scene_graph=scene_graph)
+        parser.AddModelFromFile(sdf_file)
+        plant.Finalize(scene_graph)
 
         # Add
         nn_system = NNSystem(self.pytorch_nn_object)
@@ -73,7 +54,6 @@ class NNTestSetup:
         # plant -> NN
         builder.Connect(plant.get_continuous_state_output_port(),
                         nn_system.NN_in_input_port)
-
 
         # Add meshcat visualizer
         meshcat = MeshcatVisualizer(scene_graph)
@@ -101,3 +81,10 @@ class NNTestSetup:
         sim_duration = 5.
         simulator.StepTo(sim_duration)
         print("stepping complete")
+
+
+if __name__ == "__main__":
+    net = FCBIG()
+    nn_test_setup = NNTestSetup(pytorch_nn_object=net)
+    nn_test_setup.RunSimulation()
+
