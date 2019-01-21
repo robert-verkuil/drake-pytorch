@@ -71,9 +71,10 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
             target_traj = kwargs['target_trajs'][i]
         else:
             target_traj = []
+            if kwargs['warm_start'] == "target":
+                kwargs['warm_start'] = 'linear'
         dircol, result = do_dircol_fn(
                             ic           = ic,
-                            warm_start   = "linear",
                             seed         = 1776,
                             target_traj  = target_traj,
                             **kwargs)
@@ -105,9 +106,10 @@ def f(inp):
         target_traj = kwargs['target_trajs'][i]
     else:
         target_traj = []
+        if kwargs['warm_start'] == "target":
+            kwargs['warm_start'] = 'linear'
     dircol, result = do_dircol_fn(
                         ic           = ic,
-                        warm_start   = "linear",
                         seed         = 1776,
                         target_traj  = target_traj,
                         **kwargs) # <- will this work?
@@ -261,10 +263,9 @@ def visualize_intermediate_results(trajectories,
                                    parallel=True):
     vis_ic_list = ic_list
     vis_trajectories = trajectories
-    import multiprocessing
-    if len(ic_list) > multiprocessing.cpu_count()-1:
+    if len(ic_list) > 25:
         print("truncating")
-        idcs = np.random.choice(len(ic_list), multiprocessing.cpu_count()-1, replace=False)
+        idcs = np.random.choice(len(ic_list), 25, replace=False)
         vis_ic_list = list((ic_list[idx] for idx in idcs))
         if vis_trajectories:
             vis_trajectories = list((trajectories[idx] for idx in idcs))
@@ -382,7 +383,7 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
 
 # If naive is true, it just does parallel trajectory optimization and supervised learning.
 # Else, it does Igor's method.
-def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_start=None, **kwargs):
+def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwargs):
     assert expmt in ("pendulum", "cartpole")
     if expmt == "pendulum":
         do_dircol_fn  = do_dircol_pendulum
@@ -395,7 +396,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
         plot_type   = "state_scatter"
         WALLCLOCK_TIME_LIMIT = 15
         if ic_list == None:
-            num_trajectories = 144 #50**2
+            num_trajectories = 8 #144 #50**2
             ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
         total_iterations = 3
     elif expmt == "cartpole":
@@ -420,10 +421,10 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
     # ^ accomplish the above via an outer loop over this function, so that we can use that outer loop for the Russ method, too.
 
     # Do a warm start via an unconstrained optimization is nothing is given to us
-    if warm_start is None and not naive:
+    if not naive:
         print("doing warm start")
-        #optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
-        optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
+        optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
+        #optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
         print("finished warm start")
         kwargs['target_trajs']    = optimized_trajs
     
@@ -454,6 +455,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
         for traj, result in zip(optimized_trajs, results):
             if result == SolutionResult.kSolutionFound:
                 trajs_to_fit.append(traj)
+        print(len(optimized_trajs), len(trajs_to_fit))
         if naive:
             igor_supervised_learning_cuda(trajs_to_fit, net, use_prox=False, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
         else:
@@ -469,8 +471,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, warm_
                                        expmt=expmt,
                                        plot_type=plot_type,
                                        network=net.cpu(),
-                                       ic_list=ic_list,
-                                       #ic_list=ic_list[:multiprocessing.cpu_count()-1],
+                                       #ic_list=ic_list,
+                                       ic_list=ic_list[:multiprocessing.cpu_count()-1],
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)

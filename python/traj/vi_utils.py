@@ -40,6 +40,10 @@ dircol = None
 plant = None
 context = None
 def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_timestep=0.5, warm_start="linear", seed=1776, should_vis=False, target_traj=None, **kwargs):
+#    if 'warm_start' in kwargs:
+#        print(kwargs['warm_start'])
+#    else:
+#        print("warm_start", warm_start)
     global dircol
     global plant
     global context
@@ -81,15 +85,22 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
                                                             final_state)))
         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
 
-#     elif warm_start == "random":
-#         assert isinstance(seed, int)
-#         np.random.seed(seed)
-#         breaks = np.linspace(0, 4, 21).reshape((-1, 1))  # using num_time_samples
-#         u_knots = np.random.rand(1, 21)*2*input_limit-input_limit # num_inputs vs num_samples? 
-#         x_knots = np.random.rand(2, 21)*2*3-3 # num_states vs num_samples? 
-#         initial_u_trajectory = PiecewisePolynomial.Cubic(breaks, u_knots, False)
-#         initial_x_trajectory = PiecewisePolynomial.Cubic(breaks, x_knots, False)
-#         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
+    elif warm_start == "random":
+        assert isinstance(seed, int)
+        np.random.seed(seed)
+        breaks = np.linspace(0, 4,  num_samples).reshape((-1, 1))  # using num_time_samples
+        u_knots = np.random.rand(1, num_samples)-0.5 # num_inputs vs num_samples? 
+        x_knots = np.random.rand(2, num_samples)-0.5 # num_states vs num_samples? 
+        initial_u_trajectory = PiecewisePolynomial.Cubic(breaks, u_knots, False)
+        initial_x_trajectory = PiecewisePolynomial.Cubic(breaks, x_knots, False)
+        dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
+
+    elif warm_start == "target":
+        assert target_traj != [], "Need a valid target for warm starting"
+        (breaks, u_knots, x_knots) = target_traj
+        initial_u_trajectory = PiecewisePolynomial.Cubic(breaks.T, u_knots.T, False)
+        initial_x_trajectory = PiecewisePolynomial.Cubic(breaks.T, x_knots.T, False)
+        dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
 
     def cb(decision_vars):
         global vis_cb_counter
@@ -239,16 +250,22 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
                                                             final_state)))
         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
 
-#     elif warm_start == "random":
-#         assert isinstance(seed, int)
-#         np.random.seed(seed)
-#         breaks = np.linspace(0, 4, 21).reshape((-1, 1))  # using num_time_samples
-#         u_knots = np.random.rand(1, 21)*2*input_limit-input_limit # num_inputs vs num_samples? 
-#         x_knots = np.random.rand(2, 21)*2*3-3 # num_states vs num_samples? 
-#         initial_u_trajectory = PiecewisePolynomial.Cubic(breaks, u_knots, False)
-#         initial_x_trajectory = PiecewisePolynomial.Cubic(breaks, x_knots, False)
-#         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
+    elif warm_start == "random":
+        assert isinstance(seed, int)
+        np.random.seed(seed)
+        breaks = np.linspace(0, 4,  num_samples).reshape((-1, 1))  # using num_time_samples
+        u_knots = np.random.rand(1, num_samples)-0.5 # num_inputs vs num_samples? 
+        x_knots = np.random.rand(2, num_samples)-0.5 # num_states vs num_samples? 
+        initial_u_trajectory = PiecewisePolynomial.Cubic(breaks, u_knots, False)
+        initial_x_trajectory = PiecewisePolynomial.Cubic(breaks, x_knots, False)
+        dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
 
+    elif warm_start == "target":
+        assert target_traj != [], "Need a valid target for warm starting"
+        (breaks, u_knots, x_knots) = target_traj
+        initial_u_trajectory = PiecewisePolynomial.Cubic(breaks.T, u_knots.T, False)
+        initial_x_trajectory = PiecewisePolynomial.Cubic(breaks.T, x_knots.T, False)
+        dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
     
     def cb(decision_vars):
         global vis_cb_counter
