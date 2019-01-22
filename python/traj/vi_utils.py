@@ -97,7 +97,8 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
 
     elif warm_start == "target":
         assert target_traj != [], "Need a valid target for warm starting"
-        (breaks, u_knots, x_knots) = target_traj
+        (breaks, x_knots, u_knots) = target_traj
+        #(breaks, u_knots, x_knots) = target_traj
         initial_u_trajectory = PiecewisePolynomial.Cubic(breaks.T, u_knots.T, False)
         initial_x_trajectory = PiecewisePolynomial.Cubic(breaks.T, x_knots.T, False)
         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
@@ -177,6 +178,8 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
     # Factoriztion?
     # dircol.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
 
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  1) # Default="9300"
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  1) # Default="500"
     return dircol
 
 def do_dircol_pendulum(ic=(-1., 0.),
@@ -194,6 +197,10 @@ def do_dircol_pendulum(ic=(-1., 0.),
                                   warm_start=warm_start,
                                   seed=seed,
                                   should_vis=should_vis)
+    from pydrake.all import (SolverType)
+    # dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             0.001)
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  1) # Default="9300"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  1) # Default="500"
     result = dircol.Solve()
     if result != SolutionResult.kSolutionFound:
         print("result={}".format(result))
@@ -262,7 +269,8 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
 
     elif warm_start == "target":
         assert target_traj != [], "Need a valid target for warm starting"
-        (breaks, u_knots, x_knots) = target_traj
+        (breaks, x_knots, u_knots) = target_traj
+        #(breaks, u_knots, x_knots) = target_traj
         initial_u_trajectory = PiecewisePolynomial.Cubic(breaks.T, u_knots.T, False)
         initial_x_trajectory = PiecewisePolynomial.Cubic(breaks.T, x_knots.T, False)
         dircol.SetInitialTrajectory(initial_u_trajectory, initial_x_trajectory)
@@ -334,7 +342,7 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             12.0) # default="9999999.0" # Very aggressive cutoff...
 
     dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
-    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             20.0) # default="9999999.0"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             60.0) # default="9999999.0"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"

@@ -340,6 +340,7 @@ def visualize_intermediate_results(trajectories,
     for (times, x_knots, u_knots) in vis_trajectories:
         plot_trajectory(x_knots.T, plot_type, expmt, create_figure=False, symbol='-')
     
+    plt.figure()
     if network is not None:
         dummy_mto = MultipleTrajOpt(expmt, num_trajectories, num_samples, 1, 1)
         dummy_mto.kNetConstructor = constructor # a hack!
@@ -402,6 +403,10 @@ def nn_loader(param_list, network):
 
 def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specify the target trajectory
     alpha, lam, eta = 10., 10.**2, 10.**-2
+    # alpha, lam, eta = 10.**4, 0., 0.
+    # alpha, lam, eta = 0., 10.**4, 0.
+    # alpha, lam, eta = 0., 0., 10.**6
+    # alpha, lam, eta = 10.**4, 10.**4, 10.**4
     dircol = dircol_gen_fn(**kwargs) # Will be using all the default settings in this thing
     
     # Create a network
@@ -421,6 +426,8 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
             target = target_traj[1][i] # Get i'th knot's state vector
             #print('target: ', target)
             dircol.AddCost(eta/2. * (x - target).dot(x - target)) # L2 penalty on staying close to the last traj's state here.
+            #dircol.AddConstraint( x == target ) # L2 penalty on staying close to the last traj's state here.
+            #dircol.AddBoundingBoxConstraint(target, target, x)
 
     # Can maybe put special settings here that will make pendulum 
     # and cartpole dircols train faster in Igor mode?
@@ -466,7 +473,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         if ic_list == None:
             num_trajectories = 144 #50**2
             ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
-        total_iterations = 3
+        total_iterations = 30
     elif expmt == "cartpole":
         do_dircol_fn = do_dircol_cartpole
         dircol_gen_fn = make_dircol_cartpole
@@ -479,9 +486,9 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         plot_type   = "tip_scatter"
         WALLCLOCK_TIME_LIMIT = 60
         if ic_list == None:
-            num_trajectories = 100#**2
-            ic_list = initial_conditions_random_all_dims(num_trajectories, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
-        total_iterations = 3
+            num_trajectories = 30*30#**2
+            ic_list = initial_conditions_random_all_dims(num_trajectories, ((-30., 30.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
+        total_iterations = 30
 
 
     ##### IGOR'S BLOCK-ALTERNATING METHOD
@@ -496,6 +503,21 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
         print("finished warm start")
         kwargs['target_trajs']    = optimized_trajs
+        vis_trajs = optimized_trajs
+#        vis_trajs = []
+        visualize_intermediate_results(vis_trajs,
+                                       len(ic_list),
+                                       num_samples,
+                                       expmt=expmt,
+                                       plot_type=plot_type,
+                                       network=net.cpu(),
+                                       #ic_list=ic_list,
+                                       #ic_list=ic_list[:multiprocessing.cpu_count()-1],
+                                       #ic_list=ic_list[:8],
+                                       ic_list = initial_conditions_random_all_dims(16, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) ),
+                                       ic_scale=1.,
+                                       constructor=kNetConstructor,
+                                       WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
     
     while total_iterations > 0:
         total_iterations -= 1
@@ -537,8 +559,9 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         net.eval()
         
         # Is this even needed? TODO: get the visualization working as well.
-#        vis_trajs = optimized_trajs
-        vis_trajs = []
+        # vis_trajs = optimized_trajs
+        vis_trajs = trajs_to_fit
+        # vis_trajs = []
         visualize_intermediate_results(vis_trajs,
                                        len(ic_list),
                                        num_samples,
@@ -547,7 +570,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        network=net.cpu(),
                                        #ic_list=ic_list,
                                        #ic_list=ic_list[:multiprocessing.cpu_count()-1],
-                                       ic_list=ic_list[:8],
+                                       #ic_list=ic_list[:8],
+                                       ic_list = initial_conditions_random_all_dims(16, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) ),
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
