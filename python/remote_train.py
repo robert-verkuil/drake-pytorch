@@ -60,6 +60,7 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
             if (i+1) % iter_repeat == 0:
                 print('[%d, %5d] loss: %.3f' %
                       (epoch + 1, i + 1, running_loss / 2000))
+                sys.stdout.flush()  
             running_loss = 0.0
     print('Finished Training')
 
@@ -103,5 +104,7 @@ if __name__ == "__main__":
     # (remotely, progress is printed and new weights are saved to a file)
 
     # Then save the torch model
+    net.cpu()
+    print("remote net params hash: ", hash(np.hstack([param.data.flatten() for param in net.parameters()]).tostring()) )
     torch.save(net.state_dict(), dir_name+'/new_GPU_model.pt')
 
