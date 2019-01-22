@@ -4,6 +4,8 @@ import math
 import matplotlib.pyplot as plt
 import multiprocessing
 import numpy as np
+import os
+import subprocess
 
 from multiple_traj_opt import (
     make_mto,
@@ -137,8 +139,7 @@ def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
     return optimized_trajs, dircols, results
 
 
-def igor_supervised_learning(trajectories, net, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+def igor_supervised_learning(trajectories, net, kNetConstructor, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
     alpha, lam, eta = 10., 10.**2, 10.**-2
     frozen_parameters = [param.clone() for param in net.parameters()]
 
@@ -185,7 +186,7 @@ def igor_supervised_learning(trajectories, net, use_prox=True, iter_repeat=1, EP
             running_loss = 0.0
     print('Finished Training')
 
-def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
+def igor_supervised_learning_cuda(trajectories, net, kNetConstructor, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     net.to(device)
 
@@ -239,6 +240,58 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
                       (epoch + 1, i + 1, running_loss / 2000))
             running_loss = 0.0
     print('Finished Training')
+
+
+def igor_supervised_learning_remote(trajectories, net, kNetConstructor, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
+    # First pickle/npsave the data to std location, overwrite possible old files.
+    dir_name = 'remote_GPU'
+    all_times, all_x_knots, all_u_knots = zip(*trajectories)
+    np.save(dir_name+'/GPU_all_times',   np.array(all_times))
+    np.save(dir_name+'/GPU_all_x_knots', np.array(all_x_knots))
+    np.save(dir_name+'/GPU_all_u_knots', np.array(all_u_knots))
+
+    #os.remove(dir_name+'/new_GPU_model.pt')
+    # Then save the torch model, using a copy.
+#    net_copy = kNetConstructor()
+#    #net_copy = FCBIG()
+#    for (param, param_copy) in zip(net.parameters(), net_copy.parameters()):
+#        param_copy.data = copy.deepcopy(param.data)
+#    net_copy.eval()
+#    torch.save(net_copy, dir_name+'/GPU_model.pt')
+    print("saving torch state dict -> GPU_model.pt")
+    torch.save(net.state_dict(), dir_name+'/GPU_model.pt')
+
+    # Then scp those files over
+    print("rsync-ing files to remote")
+    cmd = "rsync -zaP remote_GPU RLG:/home/rverkuil/integration/drake-pytorch/python"
+    subprocess.call(cmd.split(' '))
+
+    # Remotely run the training code with arguments
+    # (remotely, progress is printed and new weights are saved to a file)
+    print("remotely training!")
+    python_path = "/home/rverkuil/integration/integration/bin/python"
+    script_path = "/home/rverkuil/integration/drake-pytorch/python/remote_train.py"
+    sub_cmd = python_path+" "+script_path+" {} {} {} {}".format(int(use_prox), iter_repeat, EPOCHS, lr)
+    p = subprocess.Popen(['ssh','RLG',sub_cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    while p.poll() is None:
+        l = p.stdout.readline() # This blocks until it receives a newline.
+        print(l)
+    # When the subprocess terminates there might be unconsumed output 
+    # that still needs to be processed.
+    print(p.stdout.read())
+
+    # SCP the new weights back
+    print("rsyncing files back to local...")
+    cmd = "rsync -zaP RLG:/home/rverkuil/integration/drake-pytorch/python/remote_GPU ."
+    subprocess.call(cmd.split(' '))
+
+    # Load the new weights back
+    print("loading the new state dict...")
+    net = kNetConstructor()
+    net.load_state_dict(torch.load(dir_name+'/new_GPU_model.pt', map_location='cpu'))
+    #net.eval()
+
+    # Do optional cleanup or files that were used!
     
 
 def parallel_rollout_helper(inp):
@@ -396,7 +449,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         plot_type   = "state_scatter"
         WALLCLOCK_TIME_LIMIT = 15
         if ic_list == None:
-            num_trajectories = 8 #144 #50**2
+            num_trajectories = 144 #50**2
             ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
         total_iterations = 3
     elif expmt == "cartpole":
@@ -423,8 +476,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
     # Do a warm start via an unconstrained optimization is nothing is given to us
     if not naive:
         print("doing warm start")
-        optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
-        #optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
+        #optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
+        optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
         print("finished warm start")
         kwargs['target_trajs']    = optimized_trajs
     
@@ -453,14 +506,13 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         # With an additional knot penalty term and a proximity cost on difference in parameters from the last iteration...
         trajs_to_fit = []
         for traj, result in zip(optimized_trajs, results):
-            if result == SolutionResult.kSolutionFound:
+            if result != SolutionResult.kInfeasibleConstraints:
                 trajs_to_fit.append(traj)
         print(len(optimized_trajs), len(trajs_to_fit))
-        if naive:
-            igor_supervised_learning_cuda(trajs_to_fit, net, use_prox=False, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
-        else:
-            igor_supervised_learning_cuda(trajs_to_fit, net, use_prox=True, iter_repeat=1000, EPOCHS=EPOCHS, lr=lr)
-
+        # sl_fn = igor_supervised_learning
+        # sl_fn = igor_supervised_learning_cuda
+        sl_fn = igor_supervised_learning_remote
+        sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=100, EPOCHS=EPOCHS, lr=lr)
         
         # Is this even needed? TODO: get the visualization working as well.
 #        vis_trajs = optimized_trajs
@@ -472,7 +524,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        plot_type=plot_type,
                                        network=net.cpu(),
                                        #ic_list=ic_list,
-                                       ic_list=ic_list[:multiprocessing.cpu_count()-1],
+                                       #ic_list=ic_list[:multiprocessing.cpu_count()-1],
+                                       ic_list=ic_list[:8],
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
