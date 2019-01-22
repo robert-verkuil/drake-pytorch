@@ -13,7 +13,9 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
     net.to(device)
 
     alpha, lam, eta = 10., 10.**2, 10.**-2
-    frozen_parameters = [param.clone() for param in net.parameters()]
+    #alpha, lam, eta = 1e-3, 1e2, 1e6
+    frozen_parameters = [param.clone().detach() for param in net.parameters()]
+    #print("frozen_parameters: ", frozen_parameters)
 
     criterion1 = nn.MSELoss()
     criterion2 = nn.MSELoss()
@@ -33,6 +35,8 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
     #def my_gen():
     #    for _ in range(iter_repeat):
     #        yield all_inputs, all_labels
+    if use_prox:
+        print("using prox cost!")
 
     for epoch in range(EPOCHS):
         running_loss = 0.0
@@ -46,6 +50,7 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
             # Forward pass = THE SAUCE!
             outputs = net(inputs)
             loss = alpha/2*criterion1(outputs, labels)
+            #loss = 0
             if use_prox:
                 for param, ref in zip(net.parameters(), frozen_parameters):
                     loss += eta/2*criterion2(param, ref)
@@ -63,6 +68,8 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
                 sys.stdout.flush()  
             running_loss = 0.0
     print('Finished Training')
+    #print("frozen_parameters: ", frozen_parameters)
+    #print("net.parameters(): ", net.parameters())
 
 
 
@@ -83,11 +90,14 @@ if __name__ == "__main__":
 
     # Then load the torch model
     def kNetConstructor():
-#     return MLP(2, 32, layer_norm=True, dropout=True)
-      return MLP(2, 32, layer_norm=False, dropout=False)
+#        return MLP(2, 32, layer_norm=True, dropout=True)
+        #return MLP(2, 32, layer_norm=False, dropout=False)
 #     return MLP(2, 2, layer_norm=False)
 #     return FCBIG(2, 2)
 #     return FCBIG(2, 2)
+
+        # For cartpole
+        return MLP(4, 128, layer_norm=False)
     net = kNetConstructor()
     #import pdb; pdb.set_trace()
     net.load_state_dict(torch.load(dir_name+'/GPU_model.pt'))
