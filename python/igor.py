@@ -432,19 +432,20 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
     # TODO: Add a retry here to try and get success
     result = dircol.Solve()
     #if result != SolutionResult.kSolutionFound:
-    if result != SolutionResult.kSolutionFound:
-        #print("result={}".format(result))
-        if result == SolutionResult.kInfeasibleConstraints:
-            #print("result={}, retrying".format(result))
-            # Up the accuracy.
-            from pydrake.all import (SolverType)
-            dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-            dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-3) # default="1.0e-6" was 5.0e-1
-            dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-            dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-3) # default="1.0e-6" was 5.0e-1
-            result = dircol.Solve()
-            if result != SolutionResult.kSolutionFound:
-                print("retry result={}".format(result))
+    if False:
+        if result != SolutionResult.kSolutionFound:
+            #print("result={}".format(result))
+            if result == SolutionResult.kInfeasibleConstraints:
+                #print("result={}, retrying".format(result))
+                # Up the accuracy.
+                from pydrake.all import (SolverType)
+                dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
+                dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-3) # default="1.0e-6" was 5.0e-1
+                dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
+                dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-3) # default="1.0e-6" was 5.0e-1
+                result = dircol.Solve()
+                if result != SolutionResult.kSolutionFound:
+                    print("retry result={}".format(result))
     return dircol, result
 
 # If naive is true, it just does parallel trajectory optimization and supervised learning.
@@ -457,6 +458,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         num_inputs  = 1
         num_states  = 2
         num_samples = 32
+        iter_repeat = 100
         EPOCHS      = 5 #50
         lr          = 1e-2
         plot_type   = "state_scatter"
@@ -471,12 +473,13 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         num_inputs  = 1
         num_states  = 4
         num_samples = 21
-        EPOCHS      = 5 #15 #50
+        iter_repeat = 1000
+        EPOCHS      = 15 #50
         lr          = 1e-2
         plot_type   = "tip_scatter"
         WALLCLOCK_TIME_LIMIT = 60
         if ic_list == None:
-            num_trajectories = 10 #225 #100**2
+            num_trajectories = 100#**2
             ic_list = initial_conditions_random_all_dims(num_trajectories, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
         total_iterations = 3
 
@@ -514,6 +517,9 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         #optimized_trajs, dircols, results = igor_traj_opt_serial(do_igor_dircol_fn, ic_list, **kwargs)
         optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
         
+        import pickle
+        f = open('test.pkl', 'wb')
+        pickle.dump((optimized_trajs, dircols, results), f)
         # Will need to have access to the current state of the knot points, here...
         # Then will just do a fitting, (can even add in regularization for, like, free!)
         # With an additional knot penalty term and a proximity cost on difference in parameters from the last iteration...
@@ -522,11 +528,13 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
             if result != SolutionResult.kInfeasibleConstraints:
                 trajs_to_fit.append(traj)
         print(len(optimized_trajs), len(trajs_to_fit))
+        net.train(True)
         # sl_fn = igor_supervised_learning
         # sl_fn = igor_supervised_learning_cuda
         sl_fn = igor_supervised_learning_remote
-        net = sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=100, EPOCHS=EPOCHS, lr=lr)
+        net = sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=iter_repeat, EPOCHS=EPOCHS, lr=lr)
         print("local net params hash: ", hash(np.hstack([param.data.flatten() for param in net.parameters()]).tostring() ))
+        net.eval()
         
         # Is this even needed? TODO: get the visualization working as well.
 #        vis_trajs = optimized_trajs
