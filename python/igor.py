@@ -80,7 +80,7 @@ def igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs):
                             seed         = 1776,
                             target_traj  = target_traj,
                             **kwargs)
-        #print("{} took {}".format(i, time.time() - start))
+        #print("{} took {:.2f}s".format(i, time.time() - start))
         dircols.append(FakeDircol(dircol))
         results.append(result)
 
@@ -116,7 +116,7 @@ def f(inp):
                         target_traj  = target_traj,
                         **kwargs) # <- will this work?
     if i % 10 == 0:
-        print("{} took {}".format(i, time.time() - start))
+        print("{} took {:.2f}s".format(i, time.time() - start))
 
     times   = dircol.GetSampleTimes().T
     x_knots = dircol.GetStateSamples().T
@@ -185,6 +185,7 @@ def igor_supervised_learning(trajectories, net, kNetConstructor, use_prox=True, 
                       (epoch + 1, i + 1, running_loss / 2000))
             running_loss = 0.0
     print('Finished Training')
+    return net
 
 def igor_supervised_learning_cuda(trajectories, net, kNetConstructor, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -240,9 +241,11 @@ def igor_supervised_learning_cuda(trajectories, net, kNetConstructor, use_prox=T
                       (epoch + 1, i + 1, running_loss / 2000))
             running_loss = 0.0
     print('Finished Training')
+    return net
 
 
 def igor_supervised_learning_remote(trajectories, net, kNetConstructor, use_prox=True, iter_repeat=1, EPOCHS=1, lr=1e-2):
+    print()
     # First pickle/npsave the data to std location, overwrite possible old files.
     dir_name = 'remote_GPU'
     all_times, all_x_knots, all_u_knots = zip(*trajectories)
@@ -272,13 +275,21 @@ def igor_supervised_learning_remote(trajectories, net, kNetConstructor, use_prox
     python_path = "/home/rverkuil/integration/integration/bin/python"
     script_path = "/home/rverkuil/integration/drake-pytorch/python/remote_train.py"
     sub_cmd = python_path+" "+script_path+" {} {} {} {}".format(int(use_prox), iter_repeat, EPOCHS, lr)
-    p = subprocess.Popen(['ssh','RLG',sub_cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    p = subprocess.Popen(['ssh','RLG',sub_cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     while p.poll() is None:
         l = p.stdout.readline() # This blocks until it receives a newline.
-        print(l)
+        print(l, end='')
     # When the subprocess terminates there might be unconsumed output 
     # that still needs to be processed.
     print(p.stdout.read())
+    #while True:
+    #    # out = p.stderr.read(1)
+    #    out = p.stdout.read(1)
+    #    if out == '' and p.poll() != None:
+    #        break
+    #    if out != '':
+    #        sys.stdout.write(out)
+    #        sys.stdout.flush()
 
     # SCP the new weights back
     print("rsyncing files back to local...")
@@ -292,6 +303,8 @@ def igor_supervised_learning_remote(trajectories, net, kNetConstructor, use_prox
     #net.eval()
 
     # Do optional cleanup or files that were used!
+    print()
+    return net
     
 
 def parallel_rollout_helper(inp):
@@ -512,7 +525,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         # sl_fn = igor_supervised_learning
         # sl_fn = igor_supervised_learning_cuda
         sl_fn = igor_supervised_learning_remote
-        sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=100, EPOCHS=EPOCHS, lr=lr)
+        net = sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=100, EPOCHS=EPOCHS, lr=lr)
+        print("local net params hash: ", hash(np.hstack([param.data.flatten() for param in net.parameters()]).tostring() ))
         
         # Is this even needed? TODO: get the visualization working as well.
 #        vis_trajs = optimized_trajs
