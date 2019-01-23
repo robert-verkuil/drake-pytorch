@@ -85,9 +85,10 @@ namespace systems {
 void TestFC(){
     // Make net
     FC fc;
+    MLP mlp;
 
     // Make system
-    NNSystem<AutoDiffXd> nn_system{&fc, 4, 1};
+    NNSystem<AutoDiffXd> nn_system{&mlp};
 
     // Fix our derivatives coming into the system
     auto context = nn_system.CreateDefaultContext();
