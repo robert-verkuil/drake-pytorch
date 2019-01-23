@@ -30,11 +30,4 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# add_subdirectory(find_resource)
-# add_subdirectory(particles)
-# add_subdirectory(pcl)
-# add_subdirectory(simple_bindings)
-# add_subdirectory(simple_continuous_time_system)
-# add_subdirectory(pytorch_integration)
-add_subdirectory(pytorch_alone)
-add_subdirectory(pytorch_acrobot)
+add_subdirectory(drake_pytorch)

@@ -19,7 +19,6 @@
 #include <string>
 #include <iostream>
 
-// TODO: get this working
 #include <torch/torch.h>
 
 
@@ -30,8 +29,8 @@ using geometry::ConnectDrakeVisualizer;
 using multibody::MultibodyPlant;
 
 
-// TODO: convert to cpp?
-void RenderSystemWithGraphviz(const drake::systems::System<double>& system, std::string output_file="system_view.gz"){
+void RenderSystemWithGraphviz(const drake::systems::System<double>& system, 
+                              std::string output_file="system_view.gz"){
   /*
   * Renders the Drake system (presumably a diagram,
   * otherwise this graph will be fairly trivial) using
@@ -48,11 +47,8 @@ void RenderSystemWithGraphviz(const drake::systems::System<double>& system, std:
 class NNTestSetup
 {
   public:
-    NNTestSetup(drake::systems::DrakeNet *neural_network, int n_inputs, int n_outputs)
-      : neural_network_(neural_network),
-        n_inputs_(n_inputs),
-        n_outputs_(n_outputs) {
-        std::cout << "babies first constructor " << "replaceThis" << std::endl;
+    NNTestSetup(drake::systems::DrakeNet *neural_network)
+      : neural_network_(neural_network) {
     }
 
     void RunSimulation(float real_time_rate=1.0){
@@ -62,7 +58,8 @@ class NNTestSetup
         systems::DiagramBuilder<double> builder;
         SceneGraph<double>& scene_graph = *builder.AddSystem<SceneGraph>();
 
-        const char sdfPath[] = "/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/src/pytorch_acrobot/assets/acrobot.sdf"; // TODO: handle needing full paths better than this!
+        // TODO: handle needing full paths better than this!
+        const char sdfPath[] = "/home/rverkuil/integration/drake-pytorch/cpp/drake+pytorch/src/pytorch_acrobot/assets/acrobot.sdf";
         const char urdfPath[] = "assets/acrobot.urdf";
 
         MultibodyPlant<double>& plant = *builder.AddSystem<MultibodyPlant>();
@@ -72,7 +69,6 @@ class NNTestSetup
 
         // It's one of these next two lines.
         plant.Finalize(&scene_graph);
-        // plant.Finalize()
         DRAKE_DEMAND(plant.geometry_source_is_registered());
 
         // These might just work?
@@ -84,8 +80,7 @@ class NNTestSetup
             plant.get_geometry_query_input_port());
 
         // Add
-        //drake::systems::NNSystem nn_system{neural_network_};
-        auto nn_system = builder.AddSystem<drake::systems::NNSystem>(neural_network_, n_inputs_, n_outputs_);
+        auto nn_system = builder.AddSystem<drake::systems::NNSystem>(neural_network_);
 
         // NN -> plant
         builder.Connect(nn_system->GetOutputPort("NN_out"),
@@ -111,13 +106,13 @@ class NNTestSetup
         simulator.set_publish_every_time_step(false);
         simulator.set_target_realtime_rate(real_time_rate);
         simulator.Initialize();
-      float sim_duration = 5.;
-      simulator.StepTo(sim_duration);
+        float sim_duration = 5.;
+        std::cout << "Simulating for " << sim_duration << std::endl;
+        simulator.StepTo(sim_duration);
+        std::cout << "Finished!" << std::endl;
     }
     private:
       drake::systems::DrakeNet *neural_network_;
-      int n_inputs_;
-      int n_outputs_;
 };
 } // namespace drake
 
@@ -162,7 +157,7 @@ int main(){
     // Create a new Net.
     //DummyNet net;
     Net net;
-    auto nnTest = drake::NNTestSetup{&net, 4, 1};
+    auto nnTest = drake::NNTestSetup{&net};
     nnTest.RunSimulation();
 
     return 0;
