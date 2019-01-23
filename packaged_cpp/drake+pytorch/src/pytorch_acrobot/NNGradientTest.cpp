@@ -82,13 +82,13 @@ using multibody::MultibodyPlant;
 namespace systems {
 
 
-void TestFC(){
+void TestInputGradients(bool autodiff_params=false){
     // Make net
     FC fc;
     MLP mlp;
 
     // Make system
-    NNSystem<AutoDiffXd> nn_system{&mlp};
+    NNSystem<AutoDiffXd> nn_system{&mlp, /*declare_params*/autodiff_params};
 
     // Fix our derivatives coming into the system
     auto context = nn_system.CreateDefaultContext();
@@ -99,6 +99,15 @@ void TestFC(){
         autodiff_in[i] = AutoDiffXd(values[i], Vector1<double>::Constant(1.0));
     }
     context->FixInputPort(0, autodiff_in);
+
+    // Optionally set AutoDiffXd's for parameters...
+    if (autodiff_params){
+        auto& params = context->get_mutable_numeric_parameter(0);
+        for (int i=0; i<params.size(); i++){
+            AutoDiffXd ad = params.GetAtIndex(i);
+            params.SetAtIndex(i, AutoDiffXd(ad.value(), Vector1<double>::Constant(1.0)));
+        }
+    }
 
     std::unique_ptr<systems::SystemOutput<AutoDiffXd>> output =
         nn_system.AllocateOutput();
@@ -114,15 +123,12 @@ void TestFC(){
 //                                       drake::MatrixCompareType::absolute));
 }
 
-
 } // namespace systems
 } // namespace drake
 
 int main(){
-    drake::systems::TestFC();
-
-//    MLP mlp;
-//    Test1(&mlp, 4, 1);
+    drake::systems::TestInputGradients(/*autodiff_params*/false);
+    drake::systems::TestInputGradients(/*autodiff_params*/true);
 
     return 0;
 }

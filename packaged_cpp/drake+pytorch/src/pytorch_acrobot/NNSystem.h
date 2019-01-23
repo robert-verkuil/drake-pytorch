@@ -66,7 +66,6 @@ class NNSystem final : public drake::systems::LeafSystem<T> {
   int n_inputs_;
   int n_params_;
   int n_outputs_;
-  std::unique_ptr<BasicVector<T>> params_;
   bool declare_params_;
 };
 

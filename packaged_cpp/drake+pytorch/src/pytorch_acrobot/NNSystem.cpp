@@ -27,6 +27,11 @@ NNSystem<T>::NNSystem(DrakeNet *neural_network, bool declare_params)
     n_inputs_  = first_layer_sizes[1];
     n_outputs_ = last_layer_sizes[0];
 
+    // Declare ports.
+    this->DeclareInputPort("NN_in", kVectorValued, n_inputs_);
+    this->DeclareVectorOutputPort("NN_out", BasicVector<T>(n_outputs_),
+                                  &NNSystem::Forward);
+
     // Get number of parameters.
     if (declare_params_) {
         n_params_ = 0;
@@ -38,25 +43,20 @@ NNSystem<T>::NNSystem(DrakeNet *neural_network, bool declare_params)
         }
 
         // Make a parameter vector for our Context.
+        BasicVector<T> params_local(n_params_);
         int params_loaded = 0;
-        params_ = std::make_unique<BasicVector<T>>(n_params_);
         for (auto parameter : parameters){
             auto params_flat = parameter.flatten();
             auto params_flat_a = params_flat.accessor<float, 1>();
             int n = params_flat.size(0);
             for (int i=0; i<n; i++)
-                params_->SetAtIndex(params_loaded + i,  static_cast<T>(params_flat_a[i]));
+                params_local.SetAtIndex(params_loaded + i,  static_cast<T>(params_flat_a[i]));
             params_loaded += n;
         }
         DRAKE_DEMAND(params_loaded == n_params_);
+        this->DeclareNumericParameter(params_local);
     }
 
-    // Declare ports.
-    this->DeclareInputPort("NN_in", kVectorValued, n_inputs_);
-    this->DeclareVectorOutputPort("NN_out", BasicVector<T>(n_outputs_),
-                                  &NNSystem::Forward);
-    if (declare_params_)
-        this->DeclareNumericParameter(*params_);
 }
 
 template <typename T>
@@ -118,18 +118,20 @@ void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
         in_deriv_jac.row(i) = drake_in->GetAtIndex(i).derivatives();
 
     // Make a jacobian of the (n_param x n_derivs in param_vec)
-    Eigen::MatrixXd param_deriv_jac(2, 2);
+    Eigen::MatrixXd param_deriv_jac;
     if (declare_params_){
         param_deriv_jac.resize(n_params_, n_derivs);
-        for (int i=0; i<n_params_; i++)
-            param_deriv_jac.row(i) = params_->GetAtIndex(i).derivatives();
+        auto& params = context.get_numeric_parameter(0);
+        for (int i=0; i<n_params_; i++) {
+            param_deriv_jac.row(i) = params.GetAtIndex(i).derivatives();
+        }
     }
 
     // Make an empty accumulator for Neural network (n_outputs_ vs n_inputs_) jacobian
     Eigen::MatrixXd out_in_jac(n_outputs_, n_inputs_);
 
     // Make an empty accumulator for Neural network (n_outputs_ vs n_params_) jacobian
-    Eigen::MatrixXd out_param_jac(n_outputs_, n_inputs_);
+    Eigen::MatrixXd out_param_jac(n_outputs_, n_params_);
 
     // Do derivative calculation and pack into the output vector.
     //   Because neural network might have multiple outputs, I can't simply use net.backward() with no argument.
@@ -175,11 +177,11 @@ void NNSystem<AutoDiffXd>::Forward(const Context<AutoDiffXd>& context,
     // Apply chain rule to get all derivatives from inputs -> outputs and (optionally) params -> outputs.
     Eigen::MatrixXd out_deriv_jac(n_outputs_, n_derivs);
     out_deriv_jac = out_in_jac * in_deriv_jac;
-    std::cout << "out_deriv_jac: " << out_deriv_jac << "out_in_jac: " << out_in_jac << "in_deriv_jac: " << in_deriv_jac << std::endl;
+    // std::cout << "out_deriv_jac: " << out_deriv_jac << "out_in_jac: " << out_in_jac << "in_deriv_jac: " << in_deriv_jac << std::endl;
 
     if (declare_params_)
         out_deriv_jac += out_param_jac * param_deriv_jac;
-    std::cout << "out_deriv_jac: " << out_deriv_jac << "out_param_jac: " << out_param_jac << "param_deriv_jac: " << param_deriv_jac << std::endl;
+    // std::cout << "out_deriv_jac: " << out_deriv_jac << "out_param_jac: " << out_param_jac << "param_deriv_jac: " << param_deriv_jac << std::endl;
 
     for (int j=0; j<n_outputs_; j++){
        drake_out->SetAtIndex(j, AutoDiffXd(torch_out_a[j], out_deriv_jac.row(j)));
