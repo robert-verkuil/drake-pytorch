@@ -225,26 +225,26 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
 #     torque_limit = input_limit  # N*m.
     # torque_limit = 64.
     u = dircol.input()
-    dircol.AddConstraintToAllKnotPoints(-torque_limit <= u[0])
-    dircol.AddConstraintToAllKnotPoints(u[0] <= torque_limit)
+    #dircol.AddConstraintToAllKnotPoints(-torque_limit <= u[0])
+    #dircol.AddConstraintToAllKnotPoints(u[0] <= torque_limit)
 
     initial_state = ic
     dircol.AddBoundingBoxConstraint(initial_state, initial_state,
                                     dircol.initial_state())
-    final_state = np.array([0., math.pi, 0., 0.])
+    final_state = np.array([0., math.pi, 0., 0.]).astype(np.double)
     dircol.AddBoundingBoxConstraint(final_state, final_state,
                                     dircol.final_state())
 
 #     R = 100  # Cost on input "effort".
     u = dircol.input()
     x = dircol.state()
-    #denom1 = float(10**2+math.pi**2+10**2+math.pi**2)
-    #denom2 = float(180**2)
-    denom1 = 10**2+math.pi**2+10**2+math.pi**2
-    denom2 = 180**2
+    denom1 = float(10**2+math.pi**2+10**2+math.pi**2)
+    denom2 = float(180**2)
+    #denom1 = 10**2+math.pi**2+10**2+math.pi**2
+    #denom2 = 180**2
     # dircol.AddRunningCost(u.dot(u)/denom2)
     # dircol.AddRunningCost(2*(x-final_state).dot(x-final_state)/denom1)
-    dircol.AddRunningCost(2*(x-final_state).dot(x-final_state)/denom1 + u.dot(u)/denom2)
+    dircol.AddRunningCost(2.*(x-final_state).dot(x-final_state)/denom1 + u.dot(u)/denom2)
 
     # Add a final cost equal to the total duration.
     dircol.AddFinalCost(dircol.time()) # Enabled to sim min time cost?
@@ -316,7 +316,8 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
             # State: (x, theta, x_dot, theta_dot)
             x, theta, _, _ = state_vec
             pole_length = 0.5 # manually looked this up
-            return (x-pole_length*np.sin(theta), pole_length-np.cos(theta))
+            #return (x-pole_length*np.sin(theta), pole_length-np.cos(theta))
+            return (x-pole_length*np.sin(theta), pole_length*(-np.cos(theta)))
         global vis_cb_counter
 
         vis_cb_counter += 1
@@ -326,8 +327,10 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
         coords = [state_to_tip_coord(state) for state in values.T]
         x, y = zip(*coords)
         plt.plot(x, y, '-o', label=vis_cb_counter)
+        #plt.show() # good?
 
-    if should_vis:
+    #if should_vis:
+    if False:
         plt.figure()
         plt.title('Tip trajectories')
         plt.xlabel('x')
@@ -336,13 +339,13 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
 
     from pydrake.all import (SolverType)
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-#    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-1) # default="1.0e-6" was 5.0e-1
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-#    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-1) # default="1.0e-6" was 5.0e-1
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             12.0) # default="9999999.0" # Very aggressive cutoff...
 
     dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
-    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             60.0) # default="9999999.0"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             15.0) # default="9999999.0"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
@@ -366,7 +369,7 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
     result = dircol.Solve()
     if result != SolutionResult.kSolutionFound:
         print("result={}".format(result))
-    # plt.legend()
+    plt.legend()
 
     return dircol, result
 
