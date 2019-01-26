@@ -199,11 +199,11 @@ def do_dircol_pendulum(ic=(-1., 0.),
                                   should_vis=should_vis)
     from pydrake.all import (SolverType)
     # dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             0.001)
-    dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  1) # Default="9300"
-    dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  1) # Default="500"
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  1) # Default="9300"
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  1) # Default="500"
     result = dircol.Solve()
-    if result != SolutionResult.kSolutionFound:
-        print("result={}".format(result))
+    #if result != SolutionResult.kSolutionFound:
+    #    print("result={}".format(result))
 
     return dircol, result
 
@@ -375,9 +375,10 @@ def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, m
 def graph_vi_policy_vs_traj_knot_scatter(vi_policy, 
         ics_or_dircols,
         combine_vi_policy_and_scatter=True,
-        plot_residual=True):
+        plot_residual=True,
+        warm_start="linear"):
     # using_ics = not isinstance(ics_or_dircols[0], DirectCollocation) and not isinstance(ics_or_dircols[0], FakeDircol) 
-    using_ics = 'numpy' in str(type(ics_or_dircols[0]))
+    using_ics = 'Direct' not in str(type(ics_or_dircols[0]))
     print("using_ics= ", using_ics)
 
     def eval_policy(x):
@@ -392,7 +393,7 @@ def graph_vi_policy_vs_traj_knot_scatter(vi_policy,
     for ic_or_dircol in ics_or_dircols:
         if using_ics:
             ic = ic_or_dircol
-            dircol, result = do_dircol(ic=ic, warm_start="linear", seed=1776, should_vis=False)
+            dircol, result = do_dircol_pendulum(ic=ic, warm_start=warm_start, seed=1776, should_vis=False)
         else:
             dircol = ic_or_dircol
         # Could compare just the knot points...
@@ -401,7 +402,7 @@ def graph_vi_policy_vs_traj_knot_scatter(vi_policy,
         u_knots = dircol.GetInputSamples().T
     #     print(times.shape, x_knots.shape, u_knots.shape)
         assert len(times) == len(x_knots) and len(x_knots) == len(u_knots)
-        for t, x, u in zip(times, x_knots, u_knots):
+        for t, x, u in zip(times[:1], x_knots[:1], u_knots[:1]): # Doing this to only report the traj starts!
             expected_u = eval_policy(x)
             found_u    = u
     #         print(expected_u, found_u)
@@ -477,6 +478,9 @@ def graph_vi_policy_vs_traj_knot_scatter(vi_policy,
         xs, ys = zip(*ics)
         zs = np.array(expected_us) - np.array(found_us)
         ax3.scatter(xs, ys, zs, c='r', marker='^')
+
+    # Return the diffs of expected - found
+    return ics, np.array(expected_us) - np.array(found_us)
 
 
 from pydrake.all import (BarycentricMesh, BarycentricMeshSystem)

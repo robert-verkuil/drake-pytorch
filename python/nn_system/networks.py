@@ -35,23 +35,21 @@ class FCBIG(nn.Module):
         return x
 
 class MLPSMALL(nn.Module):
-    def __init__(self, n_inputs=4, layer_norm=False, dropout=False):
+    def __init__(self, n_inputs=4, h_sz=8, layer_norm=False, dropout=False):
         super(MLPSMALL, self).__init__()
         self.n_inputs   = n_inputs
         self.layer_norm = layer_norm
         self.dropout    = dropout
 
-        h_sz = 16
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
-        self.tanh1 = torch.tanh
         self.drop1 = nn.Dropout(0.5)
         self.l3 = nn.Linear(h_sz, 1)
     
     def forward(self, x):
         x = self.l1(x)
         if self.layer_norm: x = self.ln1(x)
-        x = self.tanh1(x)
+        x = F.relu(x)
         if self.dropout: x = self.drop1(x)
         x = self.l3(x)
         return x
@@ -76,13 +74,52 @@ class MLP(nn.Module):
     def forward(self, x):
         x = self.l1(x)
         if self.layer_norm: x = self.ln1(x)
-        x = self.tanh1(x)
+        #x = self.tanh1(x)
+        x = F.relu(x)
         if self.dropout: x = self.drop1(x)
         x = self.l2(x)
         if self.layer_norm: x = self.ln2(x)
-        x = self.tanh2(x)
+        #x = self.tanh2(x)
+        x = F.relu(x)
         if self.dropout: x = self.drop2(x)
         x = self.l3(x)
+        return x
+
+class MLPBIG(nn.Module):
+    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False, dropout=False):
+        super(MLPBIG, self).__init__()
+        self.n_inputs   = n_inputs
+        self.layer_norm = layer_norm
+        self.dropout    = dropout
+
+        self.l1 = nn.Linear(self.n_inputs, h_sz)
+        self.ln1 = nn.LayerNorm(h_sz)
+        self.drop1 = nn.Dropout(0.5)
+        self.l2 = nn.Linear(h_sz, h_sz)
+        self.ln2 = nn.LayerNorm(h_sz)
+        self.drop2 = nn.Dropout(0.5)
+        self.l3 = nn.Linear(h_sz, h_sz)
+        self.ln3 = nn.LayerNorm(h_sz)
+        self.drop3 = nn.Dropout(0.5)
+        self.l4 = nn.Linear(h_sz, 1)
+    
+    def forward(self, x):
+        x = self.l1(x)
+        if self.layer_norm: x = self.ln1(x)
+        x = F.relu(x)
+        if self.dropout: x = self.drop1(x)
+
+        x = self.l2(x)
+        if self.layer_norm: x = self.ln2(x)
+        x = F.relu(x)
+        if self.dropout: x = self.drop2(x)
+
+        x = self.l3(x)
+        if self.layer_norm: x = self.ln3(x)
+        x = F.relu(x)
+        if self.dropout: x = self.drop3(x)
+
+        x = self.l4(x)
         return x
 
 class CONV(nn.Module):
