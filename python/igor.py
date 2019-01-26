@@ -309,12 +309,10 @@ def igor_supervised_learning_remote(trajectories, net, kNetConstructor, use_prox
 
 def parallel_rollout_helper(inp):
     (dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) = inp
-    #print("ic {} started".format(ic))
     _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol,
                                                                             params_list,
                                                                             ic=np.array(ic)*ic_scale,
                                                                             WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
-    #print("ic {} ended".format(ic))
     return x_knots
 
 def visualize_intermediate_results(trajectories, 
@@ -355,7 +353,6 @@ def visualize_intermediate_results(trajectories,
         h_sol = 0.5
 
         # Do rollouts in serial or in parallel
-        print("doing rollouts...")
         if not parallel:
             for ic in vis_ic_list:
                 _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol,
@@ -372,7 +369,6 @@ def visualize_intermediate_results(trajectories,
             p = Pool(multiprocessing.cpu_count() - 1)
             # Can dummy_mto be serialized if it contains a network?
             inputs = [(dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) for i, ic in enumerate(ic_list)]
-            print("dispatching parallel rollouts...")
             all_x_knots = p.map(parallel_rollout_helper, inputs)
             p.close() # good?
             assert len(all_x_knots) == len(ic_list)
@@ -406,8 +402,7 @@ def nn_loader(param_list, network):
         params_loaded += param.data.nelement()
 
 def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specify the target trajectory
-    #alpha, lam, eta = 10., 10.**2, 10.**-2
-    alpha, lam, eta = 1e-3, 10.**2, 10.**-4
+    alpha, lam, eta = 10., 10.**2, 10.**-2
     # alpha, lam, eta = 10.**4, 0., 0.
     # alpha, lam, eta = 0., 10.**4, 0.
     # alpha, lam, eta = 0., 0., 10.**6
@@ -419,7 +414,6 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
     nn_loader(kwargs['net_params'], net)
 
     target_traj = kwargs['target_traj']
-    #print('target_traj: ', target_traj)
     if not kwargs['naive']:
         for i in range(kwargs['num_samples']):
             # Now let's add on the policy deviation cost... 
@@ -444,8 +438,7 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
 
     # TODO: Add a retry here to try and get success
     result = dircol.Solve()
-    if result != SolutionResult.kSolutionFound:
-        print("result={}".format(result))
+    #if result != SolutionResult.kSolutionFound:
     if False:
         if result != SolutionResult.kSolutionFound:
             #print("result={}".format(result))
@@ -486,33 +479,22 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         dircol_gen_fn = make_dircol_cartpole
         num_inputs  = 1
         num_states  = 4
-        num_samples = 42
+        num_samples = 21
         iter_repeat = 1000
-        EPOCHS      = 50
-        lr          = 1e-3
+        EPOCHS      = 15 #50
+        lr          = 1e-2
         plot_type   = "tip_scatter"
-        WALLCLOCK_TIME_LIMIT = 15
+        WALLCLOCK_TIME_LIMIT = 60
         if ic_list == None:
-            num_trajectories = 100**2#4#64 #30*30#**2
+            num_trajectories = 30*30#**2
             ic_list = initial_conditions_random_all_dims(num_trajectories, ((-3., 3.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
         total_iterations = 30
-        kwargs['torque_limit'] = 250
 
 
     ##### IGOR'S BLOCK-ALTERNATING METHOD
     # Either A) you pick one huge block of initial conditions and stick to them throughout the optimization process
     # OR B) Keep bouncing around randomly chosen trajectories? (could be similarly huge or smaller...)
     # ^ accomplish the above via an outer loop over this function, so that we can use that outer loop for the Russ method, too.
-    kwargs['num_samples']     = num_samples
-    #kwargs['dircol_gen_fn']   = dircol_gen_fn
-    #kwargs['num_inputs']      = num_inputs
-    #kwargs['num_states']      = num_states
-    ## I have to send the network constructor and weights separately because only pickalable things are sendable
-    ## with Python's multiprocessing package...
-    #kwargs['kNetConstructor'] = kNetConstructor
-    #kwargs['net_params']      = np.hstack([param.data.numpy().flatten() for param in net.parameters()])
-    #kwargs['naive'] = naive
-    #kwargs['expmt'] = expmt
 
     # Do a warm start via an unconstrained optimization is nothing is given to us
     if not naive:
@@ -529,7 +511,6 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        expmt=expmt,
                                        plot_type=plot_type,
                                        network=net.cpu(),
-                                       #network=None,
                                        #ic_list=ic_list,
                                        #ic_list=ic_list[:multiprocessing.cpu_count()-1],
                                        #ic_list=ic_list[:8],
@@ -559,7 +540,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
         
         import pickle
-        f = open('trajs.pkl', 'wb')
+        f = open('test.pkl', 'wb')
         pickle.dump((optimized_trajs, dircols, results), f)
         # Will need to have access to the current state of the knot points, here...
         # Then will just do a fitting, (can even add in regularization for, like, free!)
@@ -581,14 +562,12 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         # vis_trajs = optimized_trajs
         vis_trajs = trajs_to_fit
         # vis_trajs = []
-        print("visualizing...")
         visualize_intermediate_results(vis_trajs,
                                        len(ic_list),
                                        num_samples,
                                        expmt=expmt,
                                        plot_type=plot_type,
                                        network=net.cpu(),
-                                       #network=None,
                                        #ic_list=ic_list,
                                        #ic_list=ic_list[:multiprocessing.cpu_count()-1],
                                        #ic_list=ic_list[:8],
