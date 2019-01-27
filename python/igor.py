@@ -554,8 +554,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         print(len(optimized_trajs), len(trajs_to_fit))
         net.train(True)
         # sl_fn = igor_supervised_learning
-        sl_fn = igor_supervised_learning_cuda
-        # sl_fn = igor_supervised_learning_remote
+        # sl_fn = igor_supervised_learning_cuda
+        sl_fn = igor_supervised_learning_remote
         net = sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=iter_repeat, EPOCHS=EPOCHS, lr=lr)
         print("local net params hash: ", hash(np.hstack([param.data.flatten() for param in net.parameters()]).tostring() ))
         net.cpu()
