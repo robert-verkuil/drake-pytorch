@@ -129,7 +129,7 @@ def igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs):
     import multiprocessing
     from multiprocessing import Pool
 
-    p = Pool(multiprocessing.cpu_count() - 1)
+    p = Pool(multiprocessing.cpu_count() - 10)
     inputs = [(do_dircol_fn, i, ic, kwargs) for i, ic in enumerate(ic_list)]
     results = p.map(f, inputs)
     p.close() # good?
@@ -366,7 +366,7 @@ def visualize_intermediate_results(trajectories,
             import multiprocessing
             from multiprocessing import Pool
 
-            p = Pool(multiprocessing.cpu_count() - 1)
+            p = Pool(multiprocessing.cpu_count() - 10)
             # Can dummy_mto be serialized if it contains a network?
             inputs = [(dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) for i, ic in enumerate(ic_list)]
             all_x_knots = p.map(parallel_rollout_helper, inputs)
@@ -402,7 +402,7 @@ def nn_loader(param_list, network):
         params_loaded += param.data.nelement()
 
 def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specify the target trajectory
-    alpha, lam, eta = 10., 10.**2, 10.**-2
+    alpha, lam, eta = 3.e-4, 10.**2, 10.**0
     # alpha, lam, eta = 10.**4, 0., 0.
     # alpha, lam, eta = 0., 10.**4, 0.
     # alpha, lam, eta = 0., 0., 10.**6
@@ -419,13 +419,13 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
             # Now let's add on the policy deviation cost... 
             num_params = 0
             pi_cost = make_NN_constraint(lambda: 0, kwargs['num_inputs'], kwargs['num_states'], num_params, network=net, do_asserts=False, L2=True)
-            dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux), np.hstack([dircol.input(i), dircol.state(i)]))
+            #dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux), np.hstack([dircol.input(i), dircol.state(i)]))
 
             # ...and the trajectory proximity cost.
             x = dircol.state(i)
             target = target_traj[1][i] # Get i'th knot's state vector
             #print('target: ', target)
-            dircol.AddCost(eta/2. * (x - target).dot(x - target)) # L2 penalty on staying close to the last traj's state here.
+            #dircol.AddCost(eta/2. * (x - target).dot(x - target)) # L2 penalty on staying close to the last traj's state here.
             #dircol.AddConstraint( x == target ) # L2 penalty on staying close to the last traj's state here.
             #dircol.AddBoundingBoxConstraint(target, target, x)
 
@@ -481,14 +481,14 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         num_inputs  = 1
         num_states  = 4
         num_samples = 21
-        iter_repeat = 1000
+        iter_repeat = 10#00
         EPOCHS      = 15 #50
         lr          = 1e-2
         plot_type   = "tip_scatter"
-        WALLCLOCK_TIME_LIMIT = 60
+        WALLCLOCK_TIME_LIMIT = 30
         if ic_list == None:
-            num_trajectories = 30*30#**2
-            ic_list = initial_conditions_random_all_dims(num_trajectories, ((-3., 3.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
+            num_trajectories = 400  #**2
+            ic_list = initial_conditions_random_all_dims(num_trajectories, ((-5., 5.), (0., 2*math.pi), (-10., 10.), (-10., 10.)) )
         vis_ic_list = initial_conditions_random_all_dims(16, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
         total_iterations = 30
 
@@ -500,27 +500,28 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
 
     # Do a warm start via an unconstrained optimization is nothing is given to us
     if not naive:
-        print("doing warm start")
+        print("doing warm start", time.time())
         #optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
         optimized_trajs, dircols, results = igor_traj_opt_parallel(do_dircol_fn, ic_list, **kwargs)
-        print("finished warm start")
+        print("finished warm start", time.time())
         kwargs['target_trajs']    = optimized_trajs
         vis_trajs = optimized_trajs
-#        vis_trajs = []
+        #vis_trajs = []
         visualize_intermediate_results(vis_trajs,
                                        len(ic_list),
                                        num_samples,
                                        expmt=expmt,
                                        plot_type=plot_type,
                                        network=net.cpu(),
+                                       #network=None,
                                        #ic_list=ic_list,
-                                       #ic_list=ic_list[:multiprocessing.cpu_count()-1],
+                                       #ic_list=ic_list[:multiprocessing.cpu_count()-10],
                                        #ic_list=ic_list[:8],
                                        ic_list = vis_ic_list,
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
-    
+    first_iter = True
     while total_iterations > 0:
         total_iterations -= 1
 
@@ -538,8 +539,11 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         kwargs['net_params']      = np.hstack([param.data.numpy().flatten() for param in net.parameters()])
         kwargs['naive'] = naive
         kwargs['expmt'] = expmt
-        #optimized_trajs, dircols, results = igor_traj_opt_serial(do_igor_dircol_fn, ic_list, **kwargs)
-        optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
+        if not naive and first_iter:
+            first_iter = False
+        else:
+            #optimized_trajs, dircols, results = igor_traj_opt_serial(do_igor_dircol_fn, ic_list, **kwargs)
+            optimized_trajs, dircols, results = igor_traj_opt_parallel(do_igor_dircol_fn, ic_list, **kwargs)
         
         import pickle
         f = open('test.pkl', 'wb')
@@ -549,15 +553,18 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         # With an additional knot penalty term and a proximity cost on difference in parameters from the last iteration...
         trajs_to_fit = []
         for traj, result in zip(optimized_trajs, results):
-            if result != SolutionResult.kInfeasibleConstraints:
+            if result != SolutionResult.kInfeasibleConstraints: # Can even try to filter out all but successes here!
+            # if result == SolutionResult.kSolutionFound: # Can even try to filter out all but successes here!
                 trajs_to_fit.append(traj)
-        print(len(optimized_trajs), len(trajs_to_fit))
+        print("Training on {}/{} trajs".format(len(trajs_to_fit), len(optimized_trajs)))
+        print(time.time())
         net.train(True)
         # sl_fn = igor_supervised_learning
         # sl_fn = igor_supervised_learning_cuda
         sl_fn = igor_supervised_learning_remote
         net = sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=iter_repeat, EPOCHS=EPOCHS, lr=lr)
         print("local net params hash: ", hash(np.hstack([param.data.flatten() for param in net.parameters()]).tostring() ))
+        print(time.time())
         net.cpu()
         net.eval()
         
@@ -571,8 +578,9 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        expmt=expmt,
                                        plot_type=plot_type,
                                        network=net.cpu(),
+                                       #network=None,
                                        #ic_list=ic_list,
-                                       #ic_list=ic_list[:multiprocessing.cpu_count()-1],
+                                       #ic_list=ic_list[:multiprocessing.cpu_count()-10],
                                        #ic_list=ic_list[:8],
                                        ic_list = vis_ic_list,
                                        ic_scale=1.,
