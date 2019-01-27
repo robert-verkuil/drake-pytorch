@@ -24,6 +24,7 @@ from pydrake.all import (
 )
 
 import torch
+import seaborn as sns
 
 # Weird!
 if '.' in __name__:
@@ -487,16 +488,28 @@ def graph_vi_policy_vs_traj_knot_scatter(vi_policy,
     return ics, np.array(expected_us) - np.array(found_us)
 
 
+# from pydrake.all import (BarycentricMesh, BarycentricMeshSystem)
+# def save_vi_policy(vi_policy, name, experiment): # binds to policy and state_grid
+#     output_values = vi_policy.get_output_values()
+#     np.save('numpy_saves/pi_b_mesh_init__'+experiment+'_'+name, state_grid)
+#     np.save('numpy_saves/pi_output_values__'+experiment+'_'+name, output_values)
+# def load_vi_policy(name, experiment):
+#     b_mesh_init = np.load('numpy_saves/pi_b_mesh_init__'+experiment+'_'+name+'.npy').tolist()
+#     output_values = np.load('numpy_saves/pi_output_values__'+experiment+'_'+name+'.npy')
+#     b_mesh = BarycentricMesh(b_mesh_init)
+#     return BarycentricMeshSystem(b_mesh, output_values)
 from pydrake.all import (BarycentricMesh, BarycentricMeshSystem)
-def save_vi_policy(vi_policy, name, experiment): # binds to policy and state_grid
-    output_values = vi_policy.get_output_values()
-    np.save('numpy_saves/pi_b_mesh_init__'+experiment+'_'+name, state_grid)
-    np.save('numpy_saves/pi_output_values__'+experiment+'_'+name, output_values)
-def load_vi_policy(name, experiment):
-    b_mesh_init = np.load('numpy_saves/pi_b_mesh_init__'+experiment+'_'+name+'.npy').tolist()
-    output_values = np.load('numpy_saves/pi_output_values__'+experiment+'_'+name+'.npy')
+def save_policy(name, expmt, policy, cost_to_go, state_grid): # binds to policy, state_grid, and cost_to_go
+    output_values = policy.get_output_values()
+    np.save('numpy_saves/pi_b_mesh_init__'+expmt+'_'+name, state_grid)
+    np.save('numpy_saves/pi_output_values__'+expmt+'_'+name, output_values)
+    np.save('numpy_saves/ctg__'+expmt+'_'+name, cost_to_go)
+def load_policy(name, expmt):
+    b_mesh_init = np.load('numpy_saves/pi_b_mesh_init__'+expmt+'_'+name+'.npy').tolist()
+    output_values = np.load('numpy_saves/pi_output_values__'+expmt+'_'+name+'.npy')
     b_mesh = BarycentricMesh(b_mesh_init)
-    return BarycentricMeshSystem(b_mesh, output_values)
+    ctg = np.load('numpy_saves/ctg__'+expmt+'_'+name+'.npy')
+    return BarycentricMeshSystem(b_mesh, output_values), ctg
 def vis_vi_policy(vi_policy):
     from mpl_toolkits.mplot3d import Axes3D
     from matplotlib import cm
@@ -529,6 +542,25 @@ def vis_nn_policy_like_vi_policy(net, vi_policy):
     ax2.set_ylabel("qdot")
     surf = ax2.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
                             cmap=cm.jet)
+
+def plot_and_print_statistics(diffs, name, bins=100, xlim=None):
+    # density plot
+    plt.figure()
+    sns.distplot(diffs, hist=True, kde=True, 
+             bins=bins, # ???
+             color = 'darkblue', 
+             hist_kws={'edgecolor':'black'},
+             kde_kws={'linewidth': 4})
+    if xlim is not None:
+        plt.xlim(xlim)
+    plt.show()
+    
+    avg = np.mean(diffs)
+    std = np.std(diffs)
+    MSE = np.sum(np.square(diffs))
+    MAE = np.mean(np.abs(diffs))
+    print("{}: avg={:.2f}, std={:.2f}, MSE={:.2f}, MAE={:.2f}".format(name, avg, std, MSE, MAE))
+
 # save_vi_policy(vi_policy, 'good')
 # test = load_vi_policy('good')
 

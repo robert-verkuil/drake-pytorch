@@ -118,6 +118,7 @@ def initial_conditions_random_all_dims(num_trajectories, bounds_list):
 
 def make_mto(
              # Settings for just the trajectory optimization.
+             expmt="pendulum",
              num_trajectories=16,
              num_samples=16,
              kMinimumTimeStep=0.2,
@@ -143,7 +144,10 @@ def make_mto(
 
              snopt_overrides=[]):
     if ic_list is None:
-        ic_list=initial_conditions_grid(num_trajectories, (-math.pi, math.pi), (-5., 5.))
+        if expmt == "pendulum":
+            ic_list=initial_conditions_grid(num_trajectories, (0, 2*math.pi), (-5., 5.))
+        elif expmt == "cartpole":
+            ic_list=initial_conditions_random_all_dims(num_trajectories, ((-3., 3.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
     if seed is not None:
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -156,7 +160,7 @@ def make_mto(
     # seed = None
     # seed = np.random.randint(0, 2000); print("seed: {}".format(seed))
     # seed = 1338
-    mto = MultipleTrajOpt("pendulum",
+    mto = MultipleTrajOpt(expmt,
                           num_trajectories, 
                           num_samples,
                           kMinimumTimeStep,
@@ -198,32 +202,37 @@ def make_mto(
     # Looks like we are getting good enough solutions!!!
     from pydrake.all import (SolverType)
     # mto.prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
+    if expmt == "pendulum":
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
 
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 2.0e-2) # default="1.0e-6"
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 2.0e-3) # default="1.0e-6"
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  2.0e-3) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 2.0e-2) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 2.0e-3) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  2.0e-3) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
 
-    # Lower if nonlinear constraint are cheap to evaluate, else higher...
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'Linesearch tolerance',  0.9) # default="0.9"
+        # Lower if nonlinear constraint are cheap to evaluate, else higher...
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Linesearch tolerance',  0.1) # default="0.9"
 
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',  120.0) # default="9999999.0"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.5) # default="2.0e+0"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',  30.0) # default="9999999.0"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Hessian',  "full memory") # Default="10"
+#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
 
-    # Factoriztion?
-    mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver CG', True) # Default="*Cholesky/CG/QN"
-    # mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver QN', True) # Default="*Cholesky/CG/QN"
+        # Factoriztion?
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
+        # mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver CG', True) # Default="*Cholesky/CG/QN"
+        # mto.prog.SetSolverOption(SolverType.kSnopt, 'QPSolver QN', True) # Default="*Cholesky/CG/QN"
+    elif expmt == "cartpole":
+        dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0"
+        # TODO: add more here
 
     for setting_name, setting in snopt_overrides:
         print("Overrode {} = {}".format(setting_name, setting))
@@ -251,6 +260,9 @@ class MultipleTrajOpt(object):
         self.warm_start = warm_start
         self.cbs = [] # This list will contain which visualization cb's to call
         self.vis_cb_counter = 0
+        # For tracking NN costs and constraints
+        self.nn_conss = []
+        self.nn_costs = []
         # Don't seed here, seed in make_mto
         # self.seed = seed
         # if self.seed is not None:
@@ -316,8 +328,12 @@ class MultipleTrajOpt(object):
                 AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
 
             for i in range(num_samples):
-                prog.AddQuadraticCost([10.], [0.], u[ti][:,i])
-                kTorqueLimit = 8
+                prog.AddQuadraticCost([[2., 0.], [0., 2.]], [0., 0.], x[ti][:,i])
+                prog.AddQuadraticCost([25.], [0.], u[ti][:,i])
+                #u_var = u[ti][:i]
+                #x_var = x[ti][:0]
+                #prog.AddCost(2*x_var.dot(x_var))
+                kTorqueLimit = 5
                 prog.AddBoundingBoxConstraint([-kTorqueLimit], [kTorqueLimit], u[ti][:,i])
                 # prog.AddConstraint(control, [0.], [0.], np.hstack([x[ti][:,i], u[ti][:,i], K.flatten()]))
                 # prog.AddConstraint(u[ti][0,i] == (3.*sym.tanh(K.dot(control_basis(x[ti][:,i]))[0])))  # u = 3*tanh(K * m(x))
@@ -356,6 +372,7 @@ class MultipleTrajOpt(object):
         if initialize_params:
             # VERY IMPORTANT!!!! - PRELOAD T WITH THE NET'S INITIALIZATION.
             # DEFAULT ZERO INITIALIZATION WILL GIVE YOU ZERO GRADIENTS!!!!
+            print("iniitalizing params")
             params_loaded = 0
             initial_guess = [AutoDiffXd]*self.num_params
             for param in dummy_net.parameters(): # Here's where we make a dummy net. Let's seed this?
@@ -388,9 +405,11 @@ class MultipleTrajOpt(object):
                 ub         = np.array([.0001])
                 var_list   = np.hstack((u_ti, x_ti, self.T))
                 if use_constraint:
-                    self.prog.AddConstraint(constraint, lb, ub, var_list)
+                    cons = self.prog.AddConstraint(lambda x: [constraint(x)], lb, ub, var_list)
+                    self.nn_conss.append(cons)
                 if cost_factor is not None:
-                    self.prog.AddCost(lambda x: cost_factor*constraint(x)[0]**2, var_list)
+                    cost = self.prog.AddCost(lambda x: cost_factor*constraint(x)**2, var_list)
+                    self.nn_costs.append(cost)
 
         
     def add_multiple_trajectories_visualization_callback(self, every_nth, vis_ic_list=None):
@@ -405,6 +424,7 @@ class MultipleTrajOpt(object):
             print(" {}".format(self.vis_cb_counter), end='')
             if (self.vis_cb_counter) % every_nth != 0:
                 return
+            #print()
             
             # Unpack the serialized variables
             num_h = self.num_trajectories
@@ -451,12 +471,14 @@ class MultipleTrajOpt(object):
 
             # Get the total cost
             all_costs = self.prog.EvalBindings(self.prog.GetAllCosts(), decision_vars)
+            nn_costs = self.prog.EvalBindings(self.nn_costs, decision_vars)
 
             # Get the total cost of the constraints.
             # Additionally, the number and extent of any constraint violations.
             violated_constraint_count = 0
             violated_constraint_cost  = 0
             constraint_cost           = 0
+            nn_violated_constraint_cost = 0
             for constraint in self.prog.GetAllConstraints():
                 val = self.prog.EvalBinding(constraint, decision_vars)
 
@@ -471,8 +493,24 @@ class MultipleTrajOpt(object):
                     violated_constraint_count += 1
                     violated_constraint_cost += np.sum(np.abs(val))
                 constraint_cost += np.sum(np.abs(val))
-            print("total cost: {: .2f} | \tconstraint {: .2f} \tbad {}, {: .2f}".format(
-                sum(all_costs), constraint_cost, violated_constraint_count, violated_constraint_cost))
+
+            # TODO: dedup!
+            for constraint in self.nn_conss:
+                val = self.prog.EvalBinding(constraint, decision_vars)
+
+                # Consider switching to DoCheckSatisfied if you can find the binding...
+                nudge = 1e-1 # This much constraint violation is not considered bad...
+                lb = constraint.evaluator().lower_bound()
+                ub = constraint.evaluator().upper_bound()
+                good_lb = np.all( np.less_equal(lb, val+nudge) )
+                good_ub = np.all( np.greater_equal(ub, val-nudge) )
+                if not good_lb or not good_ub:
+                    nn_violated_constraint_cost += np.sum(np.abs(val))
+
+            print("total cost: {: .2f} + ({: .2f}) | \tconstraint {: .2f} \tbad {}, {: .2f} + ({: .2f})".format(
+                sum(all_costs)-sum(nn_costs), sum(nn_costs), 
+                constraint_cost, 
+                violated_constraint_count, violated_constraint_cost - nn_violated_constraint_cost, nn_violated_constraint_cost))
         self.cbs.append(cb)
 
     def Solve(self):
@@ -494,8 +532,13 @@ class MultipleTrajOpt(object):
         print("TOTAL cost: {:.2f} | constraint {:.2f}".format(sum(sol_costs), sum(sol_constraints)))
         print()
 
-    def print_pi_divergence(self, ti):
+    def create_net(self):
         nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
+        return nn
+
+    def print_pi_divergence(self, ti):
+        #nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
+        nn = self.create_net()
         u_vals = self.prog.GetSolution(self.u[ti])
         x_vals = self.prog.GetSolution(self.x[ti])
 

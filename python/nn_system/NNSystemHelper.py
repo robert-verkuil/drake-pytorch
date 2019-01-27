@@ -99,7 +99,7 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, netw
         y_derivatives[:num_inputs] = np.zeros(num_inputs) # No gradient w.r.t. inputs yet.
         y_derivatives[num_inputs:num_inputs+num_states] = torch_in.grad
         if num_params > 0:
-            print("no params case in make_NN_constraint!")
+            #print("no params case in make_NN_constraint!")
             T_derivatives = []
             for param in net.parameters():
                 if param.grad is None:
