@@ -1,3 +1,5 @@
+from __future__ import print_function, absolute_import
+
 import sys
 
 import numpy as np
@@ -12,7 +14,7 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     net.to(device)
 
-    alpha, lam, eta = 10., 10.**2, 10.**-2
+    alpha, lam, eta = 10., 10.**2, 10.**4
     #alpha, lam, eta = 1e-3, 1e2, 1e6
     frozen_parameters = [param.clone().detach() for param in net.parameters()]
     #print("frozen_parameters: ", frozen_parameters)
@@ -40,6 +42,7 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
 
     for epoch in range(EPOCHS):
         running_loss = 0.0
+        running_loss2 = 0.0
         # for i, data in enumerate(my_gen(), 0):
         for i, _ in enumerate(range(iter_repeat)):
             # Unpack data
@@ -50,10 +53,13 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
             # Forward pass = THE SAUCE!
             outputs = net(inputs)
             loss = alpha/2*criterion1(outputs, labels)
-            #loss = 0
-            if use_prox:
+
+            running_loss2 -= loss.item()
+            if False:
+            #if use_prox:
                 for param, ref in zip(net.parameters(), frozen_parameters):
                     loss += eta/2*criterion2(param, ref)
+            running_loss2 += loss.item()
 
             # Backward and optimize
             optimizer.zero_grad()
@@ -63,10 +69,11 @@ def igor_supervised_learning_cuda(trajectories, net, use_prox=True, iter_repeat=
             # print statistics
             running_loss += loss.item()
             if (i+1) % iter_repeat == 0:
-                print('[%d, %5d] loss: %.3f' %
-                      (epoch + 1, i + 1, running_loss / 2000))
+                print('[%d, %5d] loss: %.3f prox_loss: %.3f' %
+                      (epoch + 1, i + 1, running_loss / 2000, running_loss2 / 2000))
                 sys.stdout.flush()  
-            running_loss = 0.0
+                running_loss = 0.0
+                running_loss2 = 0.0
     print('Finished Training')
     #print("frozen_parameters: ", frozen_parameters)
     #print("net.parameters(): ", net.parameters())
@@ -91,13 +98,16 @@ if __name__ == "__main__":
     # Then load the torch model
     def kNetConstructor():
 #        return MLP(2, 32, layer_norm=True, dropout=True)
-        #return MLP(2, 32, layer_norm=False, dropout=False)
 #     return MLP(2, 2, layer_norm=False)
 #     return FCBIG(2, 2)
 #     return FCBIG(2, 2)
 
+        # For pendulum
+        #return MLP(2, 32, layer_norm=False, dropout=False)
+
         # For cartpole
         return MLP(4, 128, layer_norm=False)
+
     net = kNetConstructor()
     #import pdb; pdb.set_trace()
     net.load_state_dict(torch.load(dir_name+'/GPU_model.pt'))
