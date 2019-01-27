@@ -208,7 +208,7 @@ def do_dircol_pendulum(ic=(-1., 0.),
     return dircol, result
 
 
-def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=180., target_traj=None, **kwargs):
+def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.0001, max_timestep=1., warm_start="linear", seed=1776, should_vis=False, torque_limit=250., target_traj=None, **kwargs):
     global dircol
     global plant
     global context
@@ -358,7 +358,7 @@ def make_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1,
     return dircol
 
 
-def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.1, max_timestep=0.4, warm_start="linear", seed=1776, should_vis=False, torque_limit=180., target_traj=None):
+def do_dircol_cartpole(ic=(-1., 0., 0., 0.), num_samples=21, min_timestep=0.0001, max_timestep=1., warm_start="linear", seed=1776, should_vis=False, torque_limit=1000., target_traj=None):
     dircol = make_dircol_cartpole(ic=ic,
                                   num_samples=num_samples,
                                   min_timestep=min_timestep,

@@ -183,7 +183,7 @@ def igor_supervised_learning(trajectories, net, kNetConstructor, use_prox=True, 
             if (i+1) % iter_repeat == 0:
                 print('[%d, %5d] loss: %.3f' %
                       (epoch + 1, i + 1, running_loss / 2000))
-            running_loss = 0.0
+                running_loss = 0.0
     print('Finished Training')
     return net
 
@@ -473,6 +473,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         if ic_list == None:
             num_trajectories = 144 #50**2
             ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
+        vis_ic_list = initial_conditions_random(16, (0., 2*math.pi), (-5., 5.))
         total_iterations = 30
     elif expmt == "cartpole":
         do_dircol_fn = do_dircol_cartpole
@@ -488,6 +489,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         if ic_list == None:
             num_trajectories = 30*30#**2
             ic_list = initial_conditions_random_all_dims(num_trajectories, ((-3., 3.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
+        vis_ic_list = initial_conditions_random_all_dims(16, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
         total_iterations = 30
 
 
@@ -514,7 +516,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        #ic_list=ic_list,
                                        #ic_list=ic_list[:multiprocessing.cpu_count()-1],
                                        #ic_list=ic_list[:8],
-                                       ic_list = initial_conditions_random_all_dims(16, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) ),
+                                       ic_list = vis_ic_list,
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
@@ -552,10 +554,11 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         print(len(optimized_trajs), len(trajs_to_fit))
         net.train(True)
         # sl_fn = igor_supervised_learning
-        # sl_fn = igor_supervised_learning_cuda
-        sl_fn = igor_supervised_learning_remote
+        sl_fn = igor_supervised_learning_cuda
+        # sl_fn = igor_supervised_learning_remote
         net = sl_fn(trajs_to_fit, net, kNetConstructor, use_prox=not naive, iter_repeat=iter_repeat, EPOCHS=EPOCHS, lr=lr)
         print("local net params hash: ", hash(np.hstack([param.data.flatten() for param in net.parameters()]).tostring() ))
+        net.cpu()
         net.eval()
         
         # Is this even needed? TODO: get the visualization working as well.
@@ -571,7 +574,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        #ic_list=ic_list,
                                        #ic_list=ic_list[:multiprocessing.cpu_count()-1],
                                        #ic_list=ic_list[:8],
-                                       ic_list = initial_conditions_random_all_dims(16, ((-1., 1.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) ),
+                                       ic_list = vis_ic_list,
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)

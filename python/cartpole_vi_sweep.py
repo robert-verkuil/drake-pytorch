@@ -118,7 +118,7 @@ def VI(u_cost=180.**2):
                                               timestep, options)
     print("VI with u_cost={} completed!".format(u_cost))
 
-    save_policy("u_cost={:.0f}_torque_limit={:0.f}".format(u_cost, input_limit), policy, cost_to_go, state_grid)
+    save_policy("u_cost={:.0f}_torque_limit={:.0f}".format(u_cost, input_limit), policy, cost_to_go, state_grid)
     return policy, cost_to_go
 
 
