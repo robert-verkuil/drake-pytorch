@@ -48,7 +48,9 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
     global dircol
     global plant
     global context
+    print("making a pendulum plant...")
     plant = PendulumPlant()
+    print("MADE!!! a pendulum plant...")
     context = plant.CreateDefaultContext()
     dircol = DirectCollocation(plant, context, num_time_samples=num_samples,
                                # minimum_timestep=0.01, maximum_timestep=0.01)
@@ -510,7 +512,7 @@ def load_policy(name, expmt):
     b_mesh = BarycentricMesh(b_mesh_init)
     ctg = np.load('numpy_saves/ctg__'+expmt+'_'+name+'.npy')
     return BarycentricMeshSystem(b_mesh, output_values), ctg
-def vis_vi_policy(vi_policy):
+def vis_vi_policy(vi_policy, ax=None):
     from mpl_toolkits.mplot3d import Axes3D
     from matplotlib import cm
 
@@ -519,13 +521,14 @@ def vis_vi_policy(vi_policy):
     [Q, Qdot] = np.meshgrid(*lists)
     Pi = np.reshape(vi_policy.get_output_values(), Q.shape)
 
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
     ax.set_xlabel("q")
     ax.set_ylabel("qdot")
     surf = ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
                             cmap=cm.jet)
-def vis_nn_policy_like_vi_policy(net, vi_policy):
+def vis_nn_policy_like_vi_policy(net, vi_policy, ax=None):
     from mpl_toolkits.mplot3d import Axes3D
     from matplotlib import cm
 
@@ -536,11 +539,12 @@ def vis_nn_policy_like_vi_policy(net, vi_policy):
     coords = zip(Q.flatten(), Qdot.flatten())
     Pi = np.reshape(net.forward(torch.tensor(coords)).data.numpy(), Q.shape)
 
-    fig2 = plt.figure()
-    ax2 = fig2.gca(projection='3d')
-    ax2.set_xlabel("q")
-    ax2.set_ylabel("qdot")
-    surf = ax2.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+    ax.set_xlabel("q")
+    ax.set_ylabel("qdot")
+    surf = ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
                             cmap=cm.jet)
 
 def eval_vi_policy(x, vi_policy):
@@ -550,14 +554,17 @@ def eval_vi_policy(x, vi_policy):
 def eval_nn_policy(x, net):
     return net.forward(torch.tensor(x)).data.numpy()
 
-def plot_and_print_statistics(diffs, name, bins=100, xlim=None):
+def plot_and_print_statistics(diffs, name, bins=100, xlim=None, ax=None):
     # density plot
-    plt.figure()
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
     sns.distplot(diffs, hist=True, kde=True, 
              bins=bins, # ???
              color = 'darkblue', 
              hist_kws={'edgecolor':'black'},
-             kde_kws={'linewidth': 4})
+             kde_kws={'linewidth': 4},
+             ax=ax)
     if xlim is not None:
         plt.xlim(xlim)
     plt.show()

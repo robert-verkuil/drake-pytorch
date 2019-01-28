@@ -119,6 +119,12 @@ def initial_conditions_random_all_dims(num_trajectories, bounds_list):
 #########################################################
 # Warm Start Methods
 #########################################################
+# Helper to get solution else initial guess
+def get_solution_else_initial_guess(prog, variables):
+    ret = prog.GetSolution(variables)
+    if np.isnan(ret.flat[0]):
+        ret = prog.GetInitialGuess(variables)
+    return ret
 # 0) RESTART WITH A DIFFERENT MINIBATCH OF INITIAL CONDITIONS
 # Simplest possible version, (using the EXACT previous answer as a warm start)
 def method0(mto, ic_list, **kwargs):
@@ -139,7 +145,7 @@ def method1(mto):
     mto = make_mto()
 
     # Warm start...
-    old_mto_dec_vals = old_mto.prog.GetSolution(old_mto.prog.decision_variables())
+    old_mto_dec_vals = get_solution_else_initial_guess(old_mto.prog, old_mto.prog.decision_variables())
     mto.prog.SetInitialGuessForAllVariables(old_mto_dec_vals)
 
     mto.Solve()
@@ -220,9 +226,7 @@ def method4(mto, ic_list, **kwargs):
     old_mto = mto
     mto = make_mto(ic_list=ic_list, **kwargs)
 
-#     warm_mto = MultipleTrajOpt("pendulum", 16, 16, 0.2, 0.5, ic_list=ic_list, warm_start=True, seed=old_mto.seed)
-#     warm_mto.add_cost_and_constraint_printing_callback(1)
-    print("\n\n BEGIN WARM START")
+#    print("\n\n BEGIN WARM START")
     warm_kwargs = copy.deepcopy(kwargs)
     warm_kwargs["kNetConstructor"] = None # Turn off NN, just for warm start
     warm_kwargs["vis_cb_every_nth"] = None
@@ -230,19 +234,19 @@ def method4(mto, ic_list, **kwargs):
 #     warm_kwargs["snopt_overrides"] = [('Major iterations limit',  1e9)]
     warm_mto = make_mto(ic_list=ic_list, **warm_kwargs)
     warm_mto.Solve()
-    print("END WARM START \n\n")
+#    print("END WARM START \n\n")
 
     # Warm start paths with fresh solves, but carry over NN
-    warm_mto_hux_vals = warm_mto.prog.GetSolution(warm_mto.prog.decision_variables())           # np.hstack([warm_mto.prog.GetSolution(var) for var in (warm_mto.h, warm_mto.u, warm_mto.x)])
+    warm_mto_hux_vals = warm_mto.prog.GetSolution(warm_mto.prog.decision_variables())
     if old_mto is not None:
-        old_mto_T_vals = old_mto.prog.GetSolution(old_mto.T)
+        old_mto_T_vals = get_solution_else_initial_guess(old_mto.prog, old_mto.T)
     else:
         old_mto_T_vals = mto.prog.GetInitialGuess(mto.T)
     mto.prog.SetInitialGuessForAllVariables(np.hstack([warm_mto_hux_vals, old_mto_T_vals]))
         
-    print("\n\n BEGIN REAL SOLVE")
+#    print("\n\n BEGIN REAL SOLVE")
     mto.Solve()
-    print("END REAL SOLVE \n\n")
+#    print("END REAL SOLVE \n\n")
     return old_mto, mto
 # 5) RESTART WITH A DIFFERENT MINIBATCH OF INITIAL CONDITIONS, fresh traj. solves with policy violation cost?
 # Is this even cheaper?
@@ -358,7 +362,6 @@ def make_mto(
                           use_dropout       = True,
                           nn_init           = kaiming_uniform,
                           nn_noise          = 1e-2)
-
         
     if vis_cb_every_nth is not None:
         if vis_cb_display_rollouts:
@@ -410,6 +413,37 @@ def make_mto(
 
     return mto
 
+# The culprits of non-packability are:
+# Decision Variables
+# MathematicalProgram
+# Bindings...
+#
+# Packer -----------------------------> Unpacker
+# 1) Save decision varibales
+# 2) Strip mto
+# 3) Send dec_vals 
+#      and stripped mto---->
+#                               ----> 4) Recv
+#                                     5) Recall mto.GenerateProg
+#                                     6) Load in decision variables as initial guesses
+#                                     7) Rely on the fact that my warm starters will pull from solution
+#                                            if solved, else initial guess...
+# SOOOO HACKYYYYYY!!!
+def pack_mto(mto):
+    if mto is None:
+        return (None, None)
+    dec_vals = get_solution_else_initial_guess(mto.prog, mto.prog.decision_variables())
+    mto.clear_prog()
+    return (mto, dec_vals)
+def unpack_mto(mto, dec_vals):
+    if mto is None:
+        return None
+    mto.generate_prog()
+    #print("adding nn params with knetconstructor = ", mto.kNetConstructor)
+    mto.add_nn_params(mto.kNetConstructor) # To make T decision variables...
+    mto.prog.SetInitialGuessForAllVariables(dec_vals)
+    #print("CHECK unpack_mto ", mto.prog.GetInitialGuess(mto.T))
+    return mto
 
 class MultipleTrajOpt(object):
     # Currently only set up to make pendulum examples
@@ -422,17 +456,18 @@ class MultipleTrajOpt(object):
                  #seed=None):
         # assert expmt == "pendulum" # Disabling this as we bring cartpole into the fold...
         self.expmt = expmt
-        self.num_inputs = 1
-        self.num_states = 2
         self.num_trajectories = num_trajectories
         self.num_samples = num_samples
+        self.kMinimumTimeStep = kMinimumTimeStep
+        self.kMaximumTimeStep = kMaximumTimeStep
+        self.num_inputs = 1
+        self.num_states = 2
         self.ic_list = ic_list
         self.warm_start = warm_start
         self.cbs = [] # This list will contain which visualization cb's to call
         self.vis_cb_counter = 0
+        self.kNetConstructor = None
         # For tracking NN costs and constraints
-        self.nn_conss = []
-        self.nn_costs = []
         # Don't seed here, seed in make_mto
         # self.seed = seed
         # if self.seed is not None:
@@ -446,6 +481,32 @@ class MultipleTrajOpt(object):
         assert len(self.ic_list) == self.num_trajectories
         assert np.all( [len(ic) == self.num_states for ic in self.ic_list] )
 
+        # Make the program
+        self.generate_prog()
+
+    # clear_prog and generate_prog below are used to wipe and reload
+    # state that can not be copied/pickled when using mutliprocessing library!
+    # (results in weird pybind11 error...)
+    def clear_prog(self):
+        #self.nn_cons = []
+        #self.nn_costs = []
+        #self.prog = None
+        #self.h = None
+        #self.u = None
+        #self.x = None
+        #self.T = None
+        delattr(self, "nn_conss")
+        delattr(self, "nn_costs")
+        delattr(self, "prog")
+        delattr(self, "h")
+        delattr(self, "u")
+        delattr(self, "x")
+        delattr(self, "T")
+            
+    def generate_prog(self):
+        self.nn_conss = []
+        self.nn_costs = []
+
         plant = PendulumPlant()
         context = plant.CreateDefaultContext()
         dircol_constraint = DirectCollocationConstraint(plant, context)
@@ -454,7 +515,7 @@ class MultipleTrajOpt(object):
         # K = prog.NewContinuousVariables(1,7,'K')
         def final_cost(x):
             return 100.*(cos(.5*x[0])**2 + x[1]**2)   
-            
+
         h = [];
         u = [];
         x = [];
@@ -466,16 +527,16 @@ class MultipleTrajOpt(object):
         #   u = (num_trajectories, num_inputs, num_samples) | u = (num_trajectories, num_samples, num_inputs)
         #   x = (num_trajectories, num_states, num_samples) | x = (num_trajectories, num_samples, num_states)
         #   T = (num_params)                                | T = (num_params)
-        for ti in range(num_trajectories):
+        for ti in range(self.num_trajectories):
             h.append(prog.NewContinuousVariables(1,'h'+str(ti)))
-        for ti in range(num_trajectories):
-            u.append(prog.NewContinuousVariables(1, num_samples,'u'+str(ti)))
-        for ti in range(num_trajectories):
-            x.append(prog.NewContinuousVariables(2, num_samples,'x'+str(ti)))
+        for ti in range(self.num_trajectories):
+            u.append(prog.NewContinuousVariables(1, self.num_samples,'u'+str(ti)))
+        for ti in range(self.num_trajectories):
+            x.append(prog.NewContinuousVariables(2, self.num_samples,'x'+str(ti)))
 
         # Add in constraints
-        for ti in range(num_trajectories):
-            prog.AddBoundingBoxConstraint(kMinimumTimeStep, kMaximumTimeStep, h[ti])
+        for ti in range(self.num_trajectories):
+            prog.AddBoundingBoxConstraint(self.kMinimumTimeStep, self.kMaximumTimeStep, h[ti])
             # prog.AddQuadraticCost([1.], [0.], h[ti]) # Added by me, penalize long timesteps
 
             x0 = np.array(self.ic_list[ti]) # TODO: hopefully this isn't subtley bad...
@@ -487,17 +548,17 @@ class MultipleTrajOpt(object):
 
             # Do optional warm start here
             if self.warm_start:
-                prog.SetInitialGuess(h[ti], [(kMinimumTimeStep+kMaximumTimeStep)/2])
-                for i in range(num_samples):
+                prog.SetInitialGuess(h[ti], [(self.kMinimumTimeStep+self.kMaximumTimeStep)/2])
+                for i in range(self.num_samples):
                     prog.SetInitialGuess(u[ti][:,i], [0.])
-                    x_interp = (xf-x0)*i/num_samples + x0
+                    x_interp = (xf-x0)*i/self.num_samples + x0
                     prog.SetInitialGuess(x[ti][:,i], x_interp)
                     # prog.SetInitialGuess(u[ti][:,i], np.array(1.0))
 
-            for i in range(num_samples-1):
+            for i in range(self.num_samples-1):
                 AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
 
-            for i in range(num_samples):
+            for i in range(self.num_samples):
                 prog.AddQuadraticCost([[2., 0.], [0., 2.]], [0., 0.], x[ti][:,i])
                 prog.AddQuadraticCost([25.], [0.], u[ti][:,i])
                 #u_var = u[ti][:i]
@@ -542,7 +603,6 @@ class MultipleTrajOpt(object):
         if initialize_params:
             # VERY IMPORTANT!!!! - PRELOAD T WITH THE NET'S INITIALIZATION.
             # DEFAULT ZERO INITIALIZATION WILL GIVE YOU ZERO GRADIENTS!!!!
-            print("iniitalizing params")
             params_loaded = 0
             initial_guess = [AutoDiffXd]*self.num_params
             for param in dummy_net.parameters(): # Here's where we make a dummy net. Let's seed this?
@@ -702,8 +762,11 @@ class MultipleTrajOpt(object):
         print("TOTAL cost: {:.2f} | constraint {:.2f}".format(sum(sol_costs), sum(sol_constraints)))
         print()
 
-    def create_net(self):
-        nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
+    def create_net(self, from_initial_guess=False):
+        if from_initial_guess:
+            nn = create_nn(self.kNetConstructor, self.prog.GetInitialGuess(self.T))
+        else:
+            nn = create_nn(self.kNetConstructor, self.prog.GetSolution(self.T))
         return nn
 
     def print_pi_divergence(self, ti):
