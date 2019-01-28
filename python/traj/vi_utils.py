@@ -543,6 +543,13 @@ def vis_nn_policy_like_vi_policy(net, vi_policy):
     surf = ax2.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
                             cmap=cm.jet)
 
+def eval_vi_policy(x, vi_policy):
+    mesh = vi_policy.get_mesh()
+    ovs  = vi_policy.get_output_values()
+    return mesh.Eval(ovs, x)
+def eval_nn_policy(x, net):
+    return net.forward(torch.tensor(x)).data.numpy()
+
 def plot_and_print_statistics(diffs, name, bins=100, xlim=None):
     # density plot
     plt.figure()
