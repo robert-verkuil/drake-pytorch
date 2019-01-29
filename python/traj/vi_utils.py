@@ -48,9 +48,7 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
     global dircol
     global plant
     global context
-    print("making a pendulum plant...")
     plant = PendulumPlant()
-    print("MADE!!! a pendulum plant...")
     context = plant.CreateDefaultContext()
     dircol = DirectCollocation(plant, context, num_time_samples=num_samples,
                                # minimum_timestep=0.01, maximum_timestep=0.01)
