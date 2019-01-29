@@ -558,7 +558,7 @@ def plot_and_print_statistics(diffs, name, bins=100, xlim=None, ax=None):
     # density plot
     if ax is None:
         fig = plt.figure()
-        ax = fig.gca(projection='3d')
+        ax = fig.gca()
     sns.distplot(diffs, hist=True, kde=True, 
              bins=bins, # ???
              color = 'darkblue', 

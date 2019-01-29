@@ -26,6 +26,7 @@ from nn_system.NNSystemHelper import (
     create_nn,
     create_nn_policy_system,
     make_NN_constraint,
+    make_NN_constraint_instrumented,
     FCBIG,
 )
 from traj.vis import (
@@ -60,6 +61,13 @@ def end(name):
         "ts": current_milli_time()
     }
     mylog.append(ret)
+def write_log():
+    import io, json
+    with io.open('~/Desktop/data.cpuprofile', 'w', encoding='utf-8') as f:
+        f.write(unicode("["))
+        all_data = ",".join([json.dumps(data, ensure_ascii=False) for data in mylog])
+        f.write(unicode(all_data))
+        f.write(unicode("]"))
 def cos(x):
     if isinstance(x, AutoDiffXd):
         return x.cos()
@@ -140,9 +148,10 @@ def method0(mto, ic_list, **kwargs):
     return old_mto, mto
 # 1) SIMPLE RESTART WITH POTENTIALLY DIFFERENT SETTINGS, full huxT
 # Then resolve again with (potentially different settings, but using the previous answer as a warm start)
-def method1(mto):
+def method1(mto, ic_list, **kwargs):
+    print("using method1")
     old_mto = mto
-    mto = make_mto()
+    mto = make_mto(ic_list=ic_list, **kwargs)
 
     # Warm start...
     old_mto_dec_vals = get_solution_else_initial_guess(old_mto.prog, old_mto.prog.decision_variables())
@@ -223,6 +232,7 @@ def method1(mto):
 # 4) RESTART WITH A DIFFERENT MINIBATCH OF INITIAL CONDITIONS, fresh traj. solves? - should i split the traj solves?
 # Then resolve again with (potentially different settings, but using the previous answer as a warm start)
 def method4(mto, ic_list, **kwargs):
+    print("using method4")
     old_mto = mto
     mto = make_mto(ic_list=ic_list, **kwargs)
 
@@ -231,7 +241,7 @@ def method4(mto, ic_list, **kwargs):
     warm_kwargs["kNetConstructor"] = None # Turn off NN, just for warm start
     warm_kwargs["vis_cb_every_nth"] = None
     warm_kwargs["cost_cb_every_nth"] = None
-#     warm_kwargs["snopt_overrides"] = [('Major iterations limit',  1e9)]
+    warm_kwargs["snopt_overrides"] = []#[('Major iterations limit',  1e9)]
     warm_mto = make_mto(ic_list=ic_list, **warm_kwargs)
     warm_mto.Solve()
 #    print("END WARM START \n\n")
@@ -294,8 +304,10 @@ def make_mto(
              expmt="pendulum",
              num_trajectories=16,
              num_samples=16,
-             kMinimumTimeStep=0.2,
-             kMaximumTimeStep=0.5,
+             #kMinimumTimeStep=0.2,
+             #kMaximumTimeStep=0.5,
+             kMinimumTimeStep=0.0001,
+             kMaximumTimeStep=1.,
              ic_list=None,
              warm_start=True,
              seed=1338,
@@ -359,7 +371,7 @@ def make_mto(
                           cost_factor       = cost_factor,
                           initialize_params = initialize_params, 
                           reg_type          = reg_type,
-                          use_dropout       = True,
+                          use_dropout       = True, # ???
                           nn_init           = kaiming_uniform,
                           nn_noise          = 1e-2)
         
@@ -408,7 +420,7 @@ def make_mto(
         # TODO: add more here
 
     for setting_name, setting in snopt_overrides:
-        print("Overrode {} = {}".format(setting_name, setting))
+        #print("Overrode {} = {}".format(setting_name, setting))
         mto.prog.SetSolverOption(SolverType.kSnopt, setting_name, setting)
 
     return mto
@@ -559,11 +571,14 @@ class MultipleTrajOpt(object):
                 AddDirectCollocationConstraint(dircol_constraint, h[ti], x[ti][:,i], x[ti][:,i+1], u[ti][:,i], u[ti][:,i+1], prog)
 
             for i in range(self.num_samples):
-                prog.AddQuadraticCost([[2., 0.], [0., 2.]], [0., 0.], x[ti][:,i])
-                prog.AddQuadraticCost([25.], [0.], u[ti][:,i])
-                #u_var = u[ti][:i]
-                #x_var = x[ti][:0]
-                #prog.AddCost(2*x_var.dot(x_var))
+                #prog.AddQuadraticCost([[2., 0.], [0., 2.]], [0., 0.], x[ti][:,i])
+                #prog.AddQuadraticCost([25.], [0.], u[ti][:,i])
+                u_var = u[ti][:,i]
+                x_var = x[ti][:,i] - xf
+                h_var = h[ti][0]
+                #print(u_var.shape, x_var.shape, xf.shape)
+                prog.AddCost( h_var * (2*x_var.dot(x_var) + 25*u_var.dot(u_var)) )
+                #prog.AddCost( 2*((x[0]-math.pi)*(x[0]-math.pi) + x[1]*x[1]) + 25*u.dot(u))
                 kTorqueLimit = 5
                 prog.AddBoundingBoxConstraint([-kTorqueLimit], [kTorqueLimit], u[ti][:,i])
                 # prog.AddConstraint(control, [0.], [0.], np.hstack([x[ti][:,i], u[ti][:,i], K.flatten()]))
@@ -631,6 +646,7 @@ class MultipleTrajOpt(object):
                 x_ti = self.x[ti][:,i]
                 # Only one output value, so let's have lb and ub of just size one!
                 constraint = make_NN_constraint(self.kNetConstructor, self.num_inputs, self.num_states, self.num_params)
+                #constraint = make_NN_constraint_instrumented(self.kNetConstructor, self.num_inputs, self.num_states, self.num_params)
                 lb         = np.array([-.0001])
                 ub         = np.array([.0001])
                 var_list   = np.hstack((u_ti, x_ti, self.T))
