@@ -572,6 +572,7 @@ def plot_and_print_statistics(diffs, name, bins=100, xlim=None, ax=None):
     MSE = np.sum(np.square(diffs))
     MAE = np.mean(np.abs(diffs))
     print("{}: avg={:.2f}, std={:.2f}, MSE={:.2f}, MAE={:.2f}".format(name, avg, std, MSE, MAE))
+    return avg, std, MSE, MAE
 
 # save_vi_policy(vi_policy, 'good')
 # test = load_vi_policy('good')

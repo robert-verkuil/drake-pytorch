@@ -241,7 +241,7 @@ def method4(mto, ic_list, **kwargs):
     warm_kwargs["kNetConstructor"] = None # Turn off NN, just for warm start
     warm_kwargs["vis_cb_every_nth"] = None
     warm_kwargs["cost_cb_every_nth"] = None
-    warm_kwargs["snopt_overrides"] = []#[('Major iterations limit',  1e9)]
+    warm_kwargs["snopt_overrides"] = [('Time limit (secs)',  30.)] #[('Major iterations limit',  1e9)]
     warm_mto = make_mto(ic_list=ic_list, **warm_kwargs)
     warm_mto.Solve()
 #    print("END WARM START \n\n")
@@ -389,7 +389,7 @@ def make_mto(
     from pydrake.all import (SolverType)
     # mto.prog.SetSolverOption(SolverType.kSnopt, 'Verify level', -1)
     if expmt == "pendulum":
-        mto.prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
+        #mto.prog.SetSolverOption(SolverType.kSnopt, 'Print file', "/tmp/snopt.out")
 
 #        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 2.0e-2) # default="1.0e-6"
 #        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"

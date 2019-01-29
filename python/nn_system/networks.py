@@ -8,6 +8,34 @@ import torch.optim as optim
 
 torch.set_default_tensor_type('torch.DoubleTensor')
 
+class GaussianNoise(nn.Module):
+    """Gaussian noise regularizer.
+
+    Args:
+        sigma (float, optional): relative standard deviation used to generate the
+            noise. Relative means that it will be multiplied by the magnitude of
+            the value your are adding the noise to. This means that sigma can be
+            the same regardless of the scale of the vector.
+        is_relative_detach (bool, optional): whether to detach the variable before
+            computing the scale of the noise. If `False` then the scale of the noise
+            won't be seen as a constant but something to optimize: this will bias the
+            network to generate vectors with smaller values.
+    """
+
+    def __init__(self, sigma=0.1, is_relative_detach=True):
+        super(GaussianNoise, self).__init__()
+        self.sigma = sigma
+        self.is_relative_detach = is_relative_detach
+        self.noise = torch.tensor(0).to("cpu")
+
+    def forward(self, x):
+        if self.training and self.sigma != 0:
+            scale = self.sigma * x.detach() if self.is_relative_detach else self.sigma * x
+            sampled_noise = self.noise.repeat(*x.size()).double().normal_() * scale
+            x = x + sampled_noise
+        return x 
+
+
 class FC(nn.Module):
     def __init__(self, n_inputs=4):
         super(FC, self).__init__()
@@ -19,19 +47,33 @@ class FC(nn.Module):
         return x
 
 class FCBIG(nn.Module):
-    def __init__(self, n_inputs=4, h_sz=8, dropout=False):
+    def __init__(self, n_inputs=4, h_sz=8, dropout=False, init=None, input_noise=None, output_noise=None):
         super(FCBIG, self).__init__()
         self.n_inputs = n_inputs
         self.dropout  = dropout
+        self.input_noise = input_noise
+        self.output_noise = output_noise
 
         self.fc1 = nn.Linear(self.n_inputs, h_sz)
         self.drop1 = nn.Dropout(0.5)
         self.fc2 = nn.Linear(h_sz, 1)
 
+        if input_noise is not None:
+            self.in_noise = GaussianNoise(input_noise)
+        if output_noise is not None:
+            self.out_noise = GaussianNoise(output_noise)
+        if init is not None:
+            init(self.fc1.weight)
+            init(self.fc2.weight)
+
     def forward(self, x):
+        if self.input_noise:
+            x = self.in_noise(x)
         x = F.relu(self.fc1(x))
         if self.dropout: x = self.drop1(x)
         x = self.fc2(x)
+        if self.output_noise:
+            x = self.out_noise(x)
         return x
 
 class MLPSMALL(nn.Module):
@@ -55,11 +97,13 @@ class MLPSMALL(nn.Module):
         return x
 
 class MLP(nn.Module):
-    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False, dropout=False):
+    def __init__(self, n_inputs=4, h_sz=256, layer_norm=False, dropout=False, init=None, input_noise=None, output_noise=None):
         super(MLP, self).__init__()
         self.n_inputs   = n_inputs
         self.layer_norm = layer_norm
         self.dropout    = dropout
+        self.input_noise = input_noise
+        self.output_noise = output_noise
 
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
@@ -70,8 +114,19 @@ class MLP(nn.Module):
         self.tanh2 = torch.tanh
         self.drop2 = nn.Dropout(0.5)
         self.l3 = nn.Linear(h_sz, 1)
+
+        if input_noise is not None:
+            self.in_noise = GaussianNoise(input_noise)
+        if output_noise is not None:
+            self.out_noise = GaussianNoise(output_noise)
+        if init is not None:
+            init(self.l1.weight)
+            init(self.l2.weight)
+            init(self.l3.weight)
     
     def forward(self, x):
+        if self.input_noise:
+            x = self.in_noise(x)
         x = self.l1(x)
         if self.layer_norm: x = self.ln1(x)
         #x = self.tanh1(x)
@@ -83,6 +138,8 @@ class MLP(nn.Module):
         x = F.relu(x)
         if self.dropout: x = self.drop2(x)
         x = self.l3(x)
+        if self.output_noise:
+            x = self.out_noise(x)
         return x
 
 class MLPBIG(nn.Module):
