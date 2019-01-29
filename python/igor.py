@@ -20,6 +20,7 @@ from nn_system.networks import *
 from traj.vis import (
     plot_trajectory
 )
+from traj.vi_utils import *
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -419,7 +420,7 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
             # Now let's add on the policy deviation cost... 
             num_params = 0
             pi_cost = make_NN_constraint(lambda: 0, kwargs['num_inputs'], kwargs['num_states'], num_params, network=net, do_asserts=False, L2=True)
-            #dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux), np.hstack([dircol.input(i), dircol.state(i)]))
+            dircol.AddCost(lambda(ux): alpha/2.*pi_cost(ux), np.hstack([dircol.input(i), dircol.state(i)]))
 
             # ...and the trajectory proximity cost.
             x = dircol.state(i)
@@ -521,9 +522,41 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+
+    vi_policy, _ = load_policy("good", "pendulum")
+
     first_iter = True
+    iters = 0
     while total_iterations > 0:
         total_iterations -= 1
+        
+        # Do periodic visualization and file writing here...
+        if kwargs['write_row']:
+            # Print learned policy vs vi_policy here (only possible for state dim == 2)
+            fig = plt.figure()
+            ax1 = fig.add_subplot(131, projection='3d')
+            ax2 = fig.add_subplot(132, projection='3d')
+            ax3 = fig.add_subplot(133)
+            if expmt == "pendulum":
+                vis_vi_policy(vi_policy, ax1)
+                vis_nn_policy_like_vi_policy(net, vi_policy, ax2)
+
+            # Print Divergence metrics between the two policies
+            vis_results = []
+            if expmt == "pendulum":
+                test_coords = initial_conditions_random(100000, (0, 2*math.pi), (-5, 5))
+            elif expmt == "cartpole":
+                test_coords = initial_conditions_random_all_dims(100000, ((-3., 3.), (0., 2*math.pi), (-1., 1.), (-1., 1.)) )
+            test_coords = ic_list
+            for coord in test_coords:
+                pair = (eval_vi_policy(coord, vi_policy), eval_nn_policy(coord, net))
+                vis_results.append(pair)
+            diffs = [result[1] - result[0] for result in vis_results]
+            avg, std, MSE, MAE = plot_and_print_statistics(diffs, "nn - vi policy deviations", bins=500, xlim=None, ax=ax3)
+            
+            kwargs['write_row'](time.time(), iters, avg, std, MSE, MAE)
+
+
 
         # Basically exactly what I have now EXCEPT, DON'T Give the NN parameters to the optimizer!!!!!
         # So, actually might want to solve all the N trajectories in parallel/simultaneously!
@@ -552,8 +585,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         # Then will just do a fitting, (can even add in regularization for, like, free!)
         # With an additional knot penalty term and a proximity cost on difference in parameters from the last iteration...
         trajs_to_fit = []
-        for traj, result in zip(optimized_trajs, results):
-            if result != SolutionResult.kInfeasibleConstraints: # Can even try to filter out all but successes here!
+        for traj, status in zip(optimized_trajs, results):
+            if status != SolutionResult.kInfeasibleConstraints: # Can even try to filter out all but successes here!
             # if result == SolutionResult.kSolutionFound: # Can even try to filter out all but successes here!
                 trajs_to_fit.append(traj)
         print("Training on {}/{} trajs".format(len(trajs_to_fit), len(optimized_trajs)))
@@ -567,7 +600,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         print(time.time())
         net.cpu()
         net.eval()
-        
+
         # Is this even needed? TODO: get the visualization working as well.
         # vis_trajs = optimized_trajs
         vis_trajs = trajs_to_fit
@@ -586,6 +619,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+        iters += 1
         
 
 # Will be using this function to try the minibatching + warm-starting approach 

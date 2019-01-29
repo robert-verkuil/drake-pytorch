@@ -167,7 +167,7 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
-    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             2.0) # default="9999999.0" # Very aggressive cutoff...
+    #dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             2.0) # default="9999999.0" # Very aggressive cutoff...
 
     dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
     # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
