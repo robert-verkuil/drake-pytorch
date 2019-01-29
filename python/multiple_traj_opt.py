@@ -149,7 +149,7 @@ def method0(mto, ic_list, **kwargs):
 # 1) SIMPLE RESTART WITH POTENTIALLY DIFFERENT SETTINGS, full huxT
 # Then resolve again with (potentially different settings, but using the previous answer as a warm start)
 def method1(mto, ic_list, **kwargs):
-    print("using method1")
+    #print("using method1")
     old_mto = mto
     mto = make_mto(ic_list=ic_list, **kwargs)
 
@@ -232,7 +232,7 @@ def method1(mto, ic_list, **kwargs):
 # 4) RESTART WITH A DIFFERENT MINIBATCH OF INITIAL CONDITIONS, fresh traj. solves? - should i split the traj solves?
 # Then resolve again with (potentially different settings, but using the previous answer as a warm start)
 def method4(mto, ic_list, **kwargs):
-    print("using method4")
+    #print("using method4")
     old_mto = mto
     mto = make_mto(ic_list=ic_list, **kwargs)
 
@@ -352,7 +352,8 @@ def make_mto(
                           kMinimumTimeStep,
                           kMaximumTimeStep,
                           ic_list=ic_list,
-                          warm_start=warm_start)
+                          warm_start=warm_start,
+                          i=i)
 
     ###############################################
     # Add a neural network!
@@ -464,7 +465,8 @@ class MultipleTrajOpt(object):
                  num_trajectories, num_samples,
                  kMinimumTimeStep, kMaximumTimeStep,
                  ic_list=None,
-                 warm_start=True):#,
+                 warm_start=True,
+                 i=0):#,
                  #seed=None):
         # assert expmt == "pendulum" # Disabling this as we bring cartpole into the fold...
         self.expmt = expmt
@@ -476,6 +478,7 @@ class MultipleTrajOpt(object):
         self.num_states = 2
         self.ic_list = ic_list
         self.warm_start = warm_start
+        self.i = i
         self.cbs = [] # This list will contain which visualization cb's to call
         self.vis_cb_counter = 0
         self.kNetConstructor = None
@@ -769,7 +772,8 @@ class MultipleTrajOpt(object):
         start = time.time()
         result = self.prog.Solve()
         dur = time.time() - start
-        print("RESULT: {} TOTAL ELAPSED TIME: {}".format(result, dur))
+        if self.i % 10 == 0:
+            print("RESULT: {} TOTAL ELAPSED TIME: {}".format(result, dur))
         return result
 
     def PrintFinalCostAndConstraint(self):
