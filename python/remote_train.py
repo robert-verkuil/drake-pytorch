@@ -103,10 +103,10 @@ if __name__ == "__main__":
 #     return FCBIG(2, 2)
 
         # For pendulum
-        #return MLP(2, 32, layer_norm=False, dropout=False)
+        return MLP(2, 32, layer_norm=False, dropout=False)
 
         # For cartpole
-        return MLP(4, 128, layer_norm=False)
+        #return MLP(4, 128, layer_norm=False)
 
     net = kNetConstructor()
     #import pdb; pdb.set_trace()
