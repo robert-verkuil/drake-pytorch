@@ -395,10 +395,10 @@ def make_mto(
 #        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  2.0e-2) # default="1.0e-6"
 #        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 2.0e-3) # default="1.0e-6"
 #        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  2.0e-3) # default="1.0e-6"
-#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-6) # default="1.0e-6"
-#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-6) # default="1.0e-6"
-#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
-#        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-6) # default="1.0e-6"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major feasibility tolerance', 1.0e-7) # default="1.0e-6"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  1.0e-7) # default="1.0e-6"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-7) # default="1.0e-6"
+        mto.prog.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  1.0e-7) # default="1.0e-6"
 
         # Lower if nonlinear constraint are cheap to evaluate, else higher...
 #        mto.prog.SetSolverOption(SolverType.kSnopt, 'Linesearch tolerance',  0.1) # default="0.9"

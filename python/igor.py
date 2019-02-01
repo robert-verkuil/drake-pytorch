@@ -533,13 +533,13 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         # Do periodic visualization and file writing here...
         if kwargs['write_row']:
             # Print learned policy vs vi_policy here (only possible for state dim == 2)
-            fig = plt.figure()
-            ax1 = fig.add_subplot(131, projection='3d')
-            ax2 = fig.add_subplot(132, projection='3d')
-            ax3 = fig.add_subplot(133)
+            #fig = plt.figure()
+            #ax1 = fig.add_subplot(131, projection='3d')
+            #ax2 = fig.add_subplot(132, projection='3d')
+            #ax3 = fig.add_subplot(133)
             if expmt == "pendulum":
-                vis_vi_policy(vi_policy, ax1)
-                vis_nn_policy_like_vi_policy(net, vi_policy, ax2)
+                vis_vi_policy(vi_policy)#, ax1)
+                vis_nn_policy_like_vi_policy(net, vi_policy)#, ax2)
 
             # Print Divergence metrics between the two policies
             vis_results = []
@@ -552,7 +552,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                 pair = (eval_vi_policy(coord, vi_policy), eval_nn_policy(coord, net))
                 vis_results.append(pair)
             diffs = [result[1] - result[0] for result in vis_results]
-            avg, std, MSE, MAE = plot_and_print_statistics(diffs, "nn - vi policy deviations", bins=500, xlim=None, ax=ax3)
+            avg, std, MSE, MAE = plot_and_print_statistics(diffs, "nn - vi policy deviations", bins=500, xlim=None)#, ax=ax3)
             
             kwargs['write_row'](time.time(), iters, avg, std, MSE, MAE)
 

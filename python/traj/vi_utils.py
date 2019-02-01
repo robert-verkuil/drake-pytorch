@@ -510,7 +510,7 @@ def load_policy(name, expmt):
     b_mesh = BarycentricMesh(b_mesh_init)
     ctg = np.load('numpy_saves/ctg__'+expmt+'_'+name+'.npy')
     return BarycentricMeshSystem(b_mesh, output_values), ctg
-def vis_vi_policy(vi_policy, ax=None):
+def vis_vi_policy(vi_policy):
     from mpl_toolkits.mplot3d import Axes3D
     from matplotlib import cm
 
@@ -519,14 +519,23 @@ def vis_vi_policy(vi_policy, ax=None):
     [Q, Qdot] = np.meshgrid(*lists)
     Pi = np.reshape(vi_policy.get_output_values(), Q.shape)
 
-    if ax is None:
-        fig = plt.figure()
-        ax = fig.gca(projection='3d')
-    ax.set_xlabel("q")
-    ax.set_ylabel("qdot")
-    surf = ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
-                            cmap=cm.jet)
-def vis_nn_policy_like_vi_policy(net, vi_policy, ax=None):
+    fig = plt.figure()
+    fig.set_size_inches(32.0, 9.0)
+    angles = (
+        (None, None),
+        (0, 0),
+        (45, 0),
+        (90, 0),
+        (0, 90),
+    )
+    for i, (elev, azim) in enumerate(angles):
+        code = int("1"+str(len(angles))+str(i+1))
+        ax = fig.add_subplot(code, projection='3d')
+        if i != 0:
+            ax.view_init(elev, azim)
+        ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1, cmap=cm.gist_ncar)
+
+def vis_nn_policy_like_vi_policy(net, vi_policy):
     from mpl_toolkits.mplot3d import Axes3D
     from matplotlib import cm
 
@@ -537,13 +546,23 @@ def vis_nn_policy_like_vi_policy(net, vi_policy, ax=None):
     coords = zip(Q.flatten(), Qdot.flatten())
     Pi = np.reshape(net.forward(torch.tensor(coords)).data.numpy(), Q.shape)
 
-    if ax is None:
-        fig = plt.figure()
-        ax = fig.gca(projection='3d')
-    ax.set_xlabel("q")
-    ax.set_ylabel("qdot")
-    surf = ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1,
-                            cmap=cm.jet)
+    fig = plt.figure()
+    fig.set_size_inches(32.0, 9.0)
+    angles = (
+        (None, None),
+        (0, 0),
+        (45, 0),
+        (90, 0),
+        (0, 90),
+    )
+    for i, (elev, azim) in enumerate(angles):
+        code = int("1"+str(len(angles))+str(i+1))
+        ax = fig.add_subplot(code, projection='3d')
+        if i != 0:
+            ax.view_init(elev, azim)
+        ax.plot_surface(Q, Qdot, Pi, rstride=1, cstride=1, cmap=cm.gist_ncar)
+        #ax.set_xlabel("q")
+        #ax.set_ylabel("qdot")
 
 def eval_vi_policy(x, vi_policy):
     mesh = vi_policy.get_mesh()
