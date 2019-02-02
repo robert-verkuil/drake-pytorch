@@ -103,7 +103,10 @@ if __name__ == "__main__":
 #     return FCBIG(2, 2)
 
         # For pendulum
-        return MLP(2, 32, layer_norm=False, dropout=False)
+        return MLP(2, 32, layer_norm=True, dropout=False)
+        #return MLP(2, 32, layer_norm=False, dropout=False, input_noise=0.1)
+        #return MLP(2, 32, layer_norm=False, dropout=False, output_noise=0.1)
+        #return MLP(2, 32, layer_norm=False, dropout=False, input_noise=.03, output_noise=.03)
 
         # For cartpole
         #return MLP(4, 128, layer_norm=False)
@@ -111,7 +114,8 @@ if __name__ == "__main__":
     net = kNetConstructor()
     #import pdb; pdb.set_trace()
     net.load_state_dict(torch.load(dir_name+'/GPU_model.pt'))
-    net.train()
+    net.train(True)
+    print("it's doing stuff...")
 
     # Run the training code with arguments
     use_prox    = bool(sys.argv[1])

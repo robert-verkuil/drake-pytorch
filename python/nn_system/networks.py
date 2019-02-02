@@ -26,10 +26,11 @@ class GaussianNoise(nn.Module):
         super(GaussianNoise, self).__init__()
         self.sigma = sigma
         self.is_relative_detach = is_relative_detach
-        self.noise = torch.tensor(0).to("cpu")
+        self.noise = torch.tensor(0).to("cuda")
 
     def forward(self, x):
-        if self.training and self.sigma != 0:
+        #if self.training and self.sigma != 0:
+        if True:
             scale = self.sigma * x.detach() if self.is_relative_detach else self.sigma * x
             sampled_noise = self.noise.repeat(*x.size()).double().normal_() * scale
             x = x + sampled_noise
