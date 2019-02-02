@@ -37,6 +37,7 @@ def create_nn(kNetConstructor, params_list):
 
 def create_nn_policy_system(kNetConstructor, params_list):
     net = create_nn(kNetConstructor, params_list)
+    net.eval()
     nn_policy = NNSystem(pytorch_nn_object=net)
     return nn_policy
 
@@ -84,6 +85,8 @@ def make_NN_constraint(kNetConstructor, num_inputs, num_states, num_params, netw
                 params_loaded += param.data.nelement() 
         else:
             net = network
+        net.eval()
+        #net.eval()
             
         # Do forward pass.
         x_values = np.array([elem.value() for elem in x])

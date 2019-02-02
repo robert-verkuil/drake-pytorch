@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import math
 import multiprocessing
 import numpy as np
+import sys
 
 
 # pydrake stuff
@@ -84,7 +85,7 @@ def sin(x):
 #########################################################
 # Big Batch of Initial Conditions
 #########################################################
-theta_bounds     = 0, math.pi
+theta_bounds     = 0, 2*math.pi
 theta_dot_bounds = -5., 5.
 def initial_conditions_Russ(num_trajectories):
     return np.array([(.8 + math.pi - .4*ti, 0.0) for ti in range(num_trajectories)])
@@ -303,11 +304,11 @@ def make_mto(
              # Settings for just the trajectory optimization.
              expmt="pendulum",
              num_trajectories=16,
-             num_samples=16,
+             num_samples=32,
              #kMinimumTimeStep=0.2,
              #kMaximumTimeStep=0.5,
-             kMinimumTimeStep=0.0001,
-             kMaximumTimeStep=1.,
+             kMinimumTimeStep=0.002,
+             kMaximumTimeStep=0.25,
              ic_list=None,
              warm_start=True,
              seed=1338,
@@ -804,23 +805,30 @@ class MultipleTrajOpt(object):
 
     def __rollout_policy_given_params(self, h_sol, params_list, ic=None, WALLCLOCK_TIME_LIMIT=6):
         nn_policy = create_nn_policy_system(self.kNetConstructor, params_list)
-        simulator, _, logger = simulate_and_log_policy_system(nn_policy, self.expmt, ic)
+        simulator, _, x_logger, u_logger = simulate_and_log_policy_system(nn_policy, self.expmt, ic)
         # simulator.get_integrator().set_target_accuracy(1e-1)
 
         start = time.time()
         while simulator.get_context().get_time() < h_sol*self.num_samples:
-            if time.time() - start > WALLCLOCK_TIME_LIMIT:
-                print("quit simulation early at {}/{} due to exceeding time limit".format(
-                    simulator.get_context().get_time(), h_sol*self.num_samples))
+            if (time.time() - start > WALLCLOCK_TIME_LIMIT):
+                print("quit simulation early at {}/{} due to exceeding time limit".format(simulator.get_context().get_time(), h_sol*self.num_samples))
+                sys.stdout.flush()
                 break
-            simulator.StepTo(simulator.get_context().get_time()+0.001)
+            state = simulator.get_context().get_continuous_state().get_vector().CopyToVector()
+            if np.sum(np.abs(state)) > 20:
+                print("quit simulation early at np.sum(state) = {} due to leaving state bounds".format(np.sum(np.abs(state))))
+                sys.stdout.flush()
+                break
+            #simulator.StepTo(simulator.get_context().get_time()+0.001)
+            simulator.StepTo(simulator.get_context().get_time()+0.1)
         # simulator.StepTo(h_sol*self.num_samples)
 
-        t_samples = logger.sample_times()
-        x_samples = logger.data()
-        return t_samples, x_samples, logger
+        t_samples = x_logger.sample_times()
+        x_samples = x_logger.data()
+        u_samples = u_logger.data()
+        return t_samples, x_samples, u_samples
 
-    def __rollout_policy_at_solution(self, ti_or_ic=None):
+    def __rollout_policy_at_solution(self, ti_or_ic=None, WALLCLOCK_TIME_LIMIT=6):
         if isinstance(ti_or_ic, int):
             ic = self.prog.GetSolution(self.x[ti_or_ic])[:,0]
             h_sol = self.prog.GetSolution(self.h[ti_or_ic])[0]
@@ -828,23 +836,37 @@ class MultipleTrajOpt(object):
             ic = ti_or_ic
             h_sol = (0.01+0.2)/2
         params_list = self.prog.GetSolution(self.T)
-        return self.__rollout_policy_given_params(h_sol, params_list, ic=ic)
+        return self.__rollout_policy_given_params(h_sol, params_list, ic=ic, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
 
-    def plot_policy(self, plot_type, ti_or_ic, create_figure=True):
-        _, x_samples, _ = self.__rollout_policy_at_solution(ti_or_ic)
+    # Plot the policy and return sum(cost) along the rollout
+    def plot_policy(self, plot_type, ti_or_ic, create_figure=True, WALLCLOCK_TIME_LIMIT=6):
+        t_samples, x_samples, u_samples = self.__rollout_policy_at_solution(ti_or_ic, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+        #print("t_samples: ", t_samples, " x_samples: ", x_samples, " u_samples: ", u_samples)
 
         plot_trajectory(x_samples, plot_type, expmt=self.expmt, create_figure=create_figure)
         
+        #cost = 0
+        #t = 0
+        #for t_sample, x_sample, u_sample in zip(t_samples.T, x_samples.T, u_samples.T):
+        #    #print("t_sample: ", t_sample, " x_sample: ", x_sample, " u_sample: ", u_sample)
+        #    dt = t_sample - t
+        #    t += t_sample
+        #    import copy
+        #    x_sample = copy.deepcopy(x_sample) - np.array([math.pi, 0.])
+        #    cost += dt*(2*x_sample.dot(x_sample) + 25*u_sample.dot(u_sample))
+        #return cost
 
-    def plot_all_policies(self, plot_type, ti_or_ics=None):
+    def plot_all_policies(self, plot_type, ti_or_ics=None, WALLCLOCK_TIME_LIMIT=6):
         if ti_or_ics is None:
             ti_or_ics = list(range(self.num_trajectories))
         ax = plt.figure()
         plt.title('Pendulum policy rollouts')
+        #total_cost = 0
         for ti_or_ic in ti_or_ics:
-            self.plot_policy(plot_type, ti_or_ic, create_figure=False)
-        plt.xlim((-math.pi*1.5, math.pi*1.5))
-        plt.ylim((-7, 7))
+            self.plot_policy(plot_type, ti_or_ic, create_figure=False, WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+        #plt.xlim((0., 2*math.pi))
+        #plt.ylim((-10, 10))
+        return 0
 
     def render_policy(self, ti_or_ic):
         _, _, logger = self.__rollout_policy_at_solution(ti_or_ic)

@@ -161,9 +161,13 @@ def simulate_and_log_policy_system(policy_system, expmt, ic=None):
     builder.Connect(wrap.get_output_port(0), vi_policy.get_input_port(0))
     builder.Connect(vi_policy.get_output_port(0), plant_system.get_input_port(0))
 
-    logger = builder.AddSystem(SignalLogger(settings['state_dim']))
-    logger._DeclarePeriodicPublish(0.033333, 0.0)
-    builder.Connect(plant_system.get_output_port(0), logger.get_input_port(0))
+    x_logger = builder.AddSystem(SignalLogger(settings['state_dim']))
+    x_logger._DeclarePeriodicPublish(0.033333, 0.0)
+    builder.Connect(plant_system.get_output_port(0), x_logger.get_input_port(0))
+
+    u_logger = builder.AddSystem(SignalLogger(1))
+    u_logger._DeclarePeriodicPublish(0.033333, 0.0)
+    builder.Connect(vi_policy.get_output_port(0), u_logger.get_input_port(0))
 
     diagram = builder.Build()
     simulator = Simulator(diagram)
@@ -174,7 +178,7 @@ def simulate_and_log_policy_system(policy_system, expmt, ic=None):
         ic = settings['initial_state']
     state.SetFromVector(ic)
 
-    return simulator, tree, logger
+    return simulator, tree, x_logger, u_logger
 
 
 

@@ -7,7 +7,7 @@ from nn_system.networks import *
 if __name__ == "__main__":
     data   = np.random.randn(96, 2)
     labels = np.random.randn(96, 1)
-    net = FCBIG(2)
+    net = MLP(2, 32, layer_norm=False, dropout=True, input_noise=10, output_noise=10)
 
     # First pickle/npsave the data to std location, overwrite possible old files.
     dir_name = 'remote_GPU'
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     np.save(dir_name+'/GPU_labels', labels)
 
     # Then save the torch model
-    torch.save(net, dir_name+'/GPU_model.pt')
+    torch.save(net.state_dict(), dir_name+'/GPU_model.pt')
 
     # Then scp those files over
     cmd = "rsync -zaP remote_GPU RLG:/home/rverkuil/integration/drake-pytorch/python"
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     # Remotely run the training code with arguments
     # (remotely, progress is printed and new weights are saved to a file)
     python_path = "/home/rverkuil/integration/integration/bin/python"
-    script_path = "/home/rverkuil/integration/drake-pytorch/python/remote_train.py"
+    script_path = "/home/rverkuil/integration/drake-pytorch/python/remote_train.py 1 1000 5 0.03"
     sub_cmd = python_path+" "+script_path
     #cmd = "ssh RLG \""+sub_cmd+"\""
     subprocess.call(['ssh','RLG',sub_cmd])

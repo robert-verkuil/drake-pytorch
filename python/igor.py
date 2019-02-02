@@ -310,11 +310,11 @@ def igor_supervised_learning_remote(trajectories, net, kNetConstructor, use_prox
 
 def parallel_rollout_helper(inp):
     (dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) = inp
-    _, x_knots, _ = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol,
+    t_knots, x_knots, u_knots = dummy_mto._MultipleTrajOpt__rollout_policy_given_params(h_sol,
                                                                             params_list,
                                                                             ic=np.array(ic)*ic_scale,
                                                                             WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
-    return x_knots
+    return t_knots, x_knots, u_knots
 
 def visualize_intermediate_results(trajectories, 
                                    num_trajectories,
@@ -342,6 +342,7 @@ def visualize_intermediate_results(trajectories,
         plot_trajectory(x_knots.T, plot_type, expmt, create_figure=False, symbol='-')
     
     plt.figure()
+    total_cost = 0
     if network is not None:
         dummy_mto = MultipleTrajOpt(expmt, num_trajectories, num_samples, 1, 1)
         dummy_mto.kNetConstructor = constructor # a hack!
@@ -369,18 +370,33 @@ def visualize_intermediate_results(trajectories,
 
             p = Pool(multiprocessing.cpu_count() - 10)
             # Can dummy_mto be serialized if it contains a network?
+            ic_list = initial_conditions_grid(36, (0.5, 2*math.pi-0.5), (-5., 5.))
             inputs = [(dummy_mto, h_sol, params_list, ic, ic_scale, WALLCLOCK_TIME_LIMIT) for i, ic in enumerate(ic_list)]
-            all_x_knots = p.map(parallel_rollout_helper, inputs)
+            all_t_knots, all_x_knots, all_u_knots = zip(*p.map(parallel_rollout_helper, inputs))
             p.close() # good?
+            assert len(all_t_knots) == len(ic_list)
             assert len(all_x_knots) == len(ic_list)
+            assert len(all_u_knots) == len(ic_list)
 
-            for x_knots in all_x_knots:
+            for t_knots, x_knots, u_knots in zip(all_t_knots, all_x_knots, all_u_knots):
                 plot_trajectory(x_knots, plot_type, expmt, create_figure=False, symbol=':')
+                cost = 0
+                t = 0
+                for t_sample, x_sample, u_sample in zip(t_knots.T, x_knots.T, u_knots.T):
+                    #print("t_sample: ", t_sample, " x_sample: ", x_sample, " u_sample: ", u_sample)
+                    dt = t_sample - t
+                    t = t_sample
+                    x_sample -= np.array([math.pi, 0.])
+                    cost += dt*(2*x_sample.dot(x_sample) + 25*u_sample.dot(u_sample))
+                total_cost += cost
 
     plt.show()
     # Enable this to clear each plot on the next draw() call.
 #     display.display(plt.gcf())
 #     display.clear_output(wait=True)
+
+    print("total cost = ", total_cost)
+    return total_cost
 
 
 from traj.vi_utils import (
@@ -439,7 +455,8 @@ def do_igor_dircol_fn(dircol_gen_fn=None, **kwargs): # TODO: somehow give/specif
 
     # TODO: Add a retry here to try and get success
     result = dircol.Solve()
-    #if result != SolutionResult.kSolutionFound:
+    if result != SolutionResult.kSolutionFound:
+        print("RESULT: ", result)
     if False:
         if result != SolutionResult.kSolutionFound:
             #print("result={}".format(result))
@@ -466,14 +483,15 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         num_inputs  = 1
         num_states  = 2
         num_samples = 32
-        iter_repeat = 100
+        iter_repeat = 1000
         EPOCHS      = 5 #50
-        lr          = 1e-2
+        lr          = 3e-2
+        #lr          = 1e-1
         plot_type   = "state_scatter"
-        WALLCLOCK_TIME_LIMIT = 15
+        WALLCLOCK_TIME_LIMIT = 120
         if ic_list == None:
             num_trajectories = 144 #50**2
-            ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-5., 5.))
+            ic_list = initial_conditions_random(num_trajectories, (0., 2*math.pi), (-10., 10.))
         vis_ic_list = initial_conditions_random(16, (0., 2*math.pi), (-5., 5.))
         total_iterations = 30
     elif expmt == "cartpole":
@@ -486,7 +504,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         EPOCHS      = 15 #50
         lr          = 1e-2
         plot_type   = "tip_scatter"
-        WALLCLOCK_TIME_LIMIT = 30
+        WALLCLOCK_TIME_LIMIT = 120
         if ic_list == None:
             num_trajectories = 400  #**2
             ic_list = initial_conditions_random_all_dims(num_trajectories, ((-5., 5.), (0., 2*math.pi), (-10., 10.), (-10., 10.)) )
@@ -500,6 +518,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
     # ^ accomplish the above via an outer loop over this function, so that we can use that outer loop for the Russ method, too.
 
     # Do a warm start via an unconstrained optimization is nothing is given to us
+    total_cost = 0
     if not naive:
         print("doing warm start", time.time())
         #optimized_trajs, dircols, results = igor_traj_opt_serial(do_dircol_fn, ic_list, **kwargs)
@@ -508,7 +527,8 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         kwargs['target_trajs']    = optimized_trajs
         vis_trajs = optimized_trajs
         #vis_trajs = []
-        visualize_intermediate_results(vis_trajs,
+        net.eval()
+        total_cost = visualize_intermediate_results(vis_trajs,
                                        len(ic_list),
                                        num_samples,
                                        expmt=expmt,
@@ -522,6 +542,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                                        ic_scale=1.,
                                        constructor=kNetConstructor,
                                        WALLCLOCK_TIME_LIMIT=WALLCLOCK_TIME_LIMIT)
+        net.train(True)
 
     vi_policy, _ = load_policy("good", "pendulum")
 
@@ -537,6 +558,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
             #ax1 = fig.add_subplot(131, projection='3d')
             #ax2 = fig.add_subplot(132, projection='3d')
             #ax3 = fig.add_subplot(133)
+            net.eval()
             if expmt == "pendulum":
                 vis_vi_policy(vi_policy)#, ax1)
                 vis_nn_policy_like_vi_policy(net, vi_policy)#, ax2)
@@ -552,9 +574,10 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
                 pair = (eval_vi_policy(coord, vi_policy), eval_nn_policy(coord, net))
                 vis_results.append(pair)
             diffs = [result[1] - result[0] for result in vis_results]
-            avg, std, MSE, MAE = plot_and_print_statistics(diffs, "nn - vi policy deviations", bins=500, xlim=None)#, ax=ax3)
+            avg, std, MSE, MAE = plot_and_print_statistics(diffs, "nn - vi policy deviations", bins=50, xlim=None)#, ax=ax3)
             
-            kwargs['write_row'](time.time(), iters, avg, std, MSE, MAE)
+            kwargs['write_row'](time.time(), iters, avg, std, MSE, MAE, total_cost)
+            net.train(True)
 
 
 
@@ -572,6 +595,7 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         kwargs['net_params']      = np.hstack([param.data.numpy().flatten() for param in net.parameters()])
         kwargs['naive'] = naive
         kwargs['expmt'] = expmt
+        net.train(True)
         if not naive and first_iter:
             first_iter = False
         else:
@@ -587,11 +611,10 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         trajs_to_fit = []
         for traj, status in zip(optimized_trajs, results):
             if status != SolutionResult.kInfeasibleConstraints: # Can even try to filter out all but successes here!
-            # if result == SolutionResult.kSolutionFound: # Can even try to filter out all but successes here!
+            #if status == SolutionResult.kSolutionFound: # Can even try to filter out all but successes here!
                 trajs_to_fit.append(traj)
         print("Training on {}/{} trajs".format(len(trajs_to_fit), len(optimized_trajs)))
         print(time.time())
-        net.train(True)
         # sl_fn = igor_supervised_learning
         # sl_fn = igor_supervised_learning_cuda
         sl_fn = igor_supervised_learning_remote
@@ -602,10 +625,10 @@ def do_igor_optimization(net, kNetConstructor, expmt, ic_list, naive=True, **kwa
         net.eval()
 
         # Is this even needed? TODO: get the visualization working as well.
-        # vis_trajs = optimized_trajs
+        #vis_trajs = optimized_trajs
         vis_trajs = trajs_to_fit
         # vis_trajs = []
-        visualize_intermediate_results(vis_trajs,
+        total_cost = visualize_intermediate_results(vis_trajs,
                                        len(ic_list),
                                        num_samples,
                                        expmt=expmt,

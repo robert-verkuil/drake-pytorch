@@ -108,11 +108,11 @@ class MLP(nn.Module):
         self.l1 = nn.Linear(self.n_inputs, h_sz)
         self.ln1 = nn.LayerNorm(h_sz)
         self.tanh1 = torch.tanh
-        self.drop1 = nn.Dropout(0.5)
+        self.drop1 = nn.Dropout(0.1)
         self.l2 = nn.Linear(h_sz, h_sz)
         self.ln2 = nn.LayerNorm(h_sz)
         self.tanh2 = torch.tanh
-        self.drop2 = nn.Dropout(0.5)
+        self.drop2 = nn.Dropout(0.1)
         self.l3 = nn.Linear(h_sz, 1)
 
         if input_noise is not None:

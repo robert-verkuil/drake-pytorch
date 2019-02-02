@@ -40,7 +40,7 @@ vis_cb_counter = 0
 dircol = None
 plant = None
 context = None
-def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_timestep=0.5, warm_start="linear", seed=1776, should_vis=False, target_traj=None, **kwargs):
+def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.002, max_timestep=0.25, warm_start="linear", seed=1776, should_vis=False, target_traj=None, **kwargs):
 #    if 'warm_start' in kwargs:
 #        print(kwargs['warm_start'])
 #    else:
@@ -51,10 +51,9 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
     plant = PendulumPlant()
     context = plant.CreateDefaultContext()
     dircol = DirectCollocation(plant, context, num_time_samples=num_samples,
-                               # minimum_timestep=0.01, maximum_timestep=0.01)
                                minimum_timestep=min_timestep, maximum_timestep=max_timestep)
 
-#     dircol.AddEqualTimeIntervalsConstraints()
+    dircol.AddEqualTimeIntervalsConstraints()
 
 #     torque_limit = input_limit  # N*m.
     torque_limit = 5.
@@ -144,11 +143,13 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
         global vis_cb_counter
 
         vis_cb_counter += 1
+        #print("counter: ", vis_cb_counter)
         if vis_cb_counter % 10 != 0:
             return
 
         x, x_dot = values[0], values[1]
         plt.plot(x, x_dot, '-o', label=vis_cb_counter)
+        plt.show()
     
     if should_vis:
         plt.figure()
@@ -167,14 +168,14 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Major optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Minor feasibility tolerance', 1.0e-6) # default="1.0e-6"
 #    dircol.SetSolverOption(SolverType.kSnopt, 'Minor optimality tolerance',  5.0e-2) # default="1.0e-6" was 5.0e-1
-    #dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             2.0) # default="9999999.0" # Very aggressive cutoff...
+    dircol.SetSolverOption(SolverType.kSnopt, 'Time limit (secs)',             60.0) # default="9999999.0" # Very aggressive cutoff...
 
     dircol.SetSolverOption(SolverType.kSnopt, 'Major step limit',  0.1) # default="2.0e+0" # HUGE!!! default takes WAY too huge steps
     # dircol.SetSolverOption(SolverType.kSnopt, 'Reduced Hessian dimension',  10000) # Default="min{2000, n1 + 1}"
     # dircol.SetSolverOption(SolverType.kSnopt, 'Hessian updates',  30) # Default="10"
-    # dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
-    # dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
-    # dircol.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Major iterations limit',  9300000) # Default="9300"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Minor iterations limit',  50000) # Default="500"
+    dircol.SetSolverOption(SolverType.kSnopt, 'Iterations limit',  50*10000) # Default="10000"
 
     # Factoriztion?
     # dircol.SetSolverOption(SolverType.kSnopt, 'QPSolver Cholesky', True) # Default="*Cholesky/CG/QN"
@@ -185,8 +186,8 @@ def make_dircol_pendulum(ic=(-1., 0.), num_samples=32, min_timestep=0.2, max_tim
 
 def do_dircol_pendulum(ic=(-1., 0.),
                        num_samples=32,
-                       min_timestep=0.2,
-                       max_timestep=0.5,
+                       min_timestep=0.002,
+                       max_timestep=0.25,
                        warm_start="linear",
                        seed=1776,
                        should_vis=False,

@@ -26,6 +26,7 @@ def NNSystem_(T):
 
             # Getting relavent qtys out of pytorch_nn_object, for port setup.
             self.network = pytorch_nn_object.double() # Needs to support an Eval method?
+            self.network.eval()
             self.n_inputs = list(pytorch_nn_object.parameters())[0].size()[-1]
             self.n_outputs = 1
 
@@ -62,6 +63,7 @@ def NNSystem_(T):
                 in_list.append(drake_in.GetAtIndex(i))
 
             # Call the helper here to do the heavy lifting.
+            self.network.eval()
             out_list = NNInferenceHelper_double(self.network, in_list)
 
             # Pack output
