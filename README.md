@@ -1,4 +1,11 @@
-# Layout
+# NNSystem files
+ - packaged cpp - cpp version of NNSystem
+ - packaged python - python version of NNSystem
+ 
+ 
+
+
+# Layout of other files
   - cpp
     - torchlib\_cpu - a snapshot of the torch compile work I had to do to make a shared lib I could link to drake
     - drake+pytorch - a drake shambala copy I'm using to compile custom drake c++ code with torch 
